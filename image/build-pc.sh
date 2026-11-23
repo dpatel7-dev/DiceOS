@@ -56,15 +56,29 @@ intel-microcode
 amd64-microcode
 LIST
 
-# Dice itself, put in by its own installer inside the image
-mkdir -p config/includes.chroot/tmp/dice-src
-tar -C "$HERE" --exclude=.git --exclude=dist -cf - . | tar -C config/includes.chroot/tmp/dice-src -xf -
+# DiceOS itself, put in by its own installer inside the image.
+# live-build copies config/includes.chroot_after_packages/ into the system
+# after the packages and before the hooks. (Older live-build called that
+# folder config/includes.chroot; Debian 13's ignores the old name, which left
+# the hook with nothing to run.) It goes in /usr/local/src, not /tmp, so
+# nothing can tidy it away first.
+for inc in config/includes.chroot_after_packages; do
+  mkdir -p "$inc/usr/local/src/dice-src"
+  tar -C "$HERE" --exclude=.git --exclude=dist -cf - . | tar -C "$inc/usr/local/src/dice-src" -xf -
+done
+test -f config/includes.chroot_after_packages/usr/local/src/dice-src/install.sh
 mkdir -p config/hooks/normal
 cat > config/hooks/normal/9000-dice.hook.chroot <<'HOOK'
 #!/bin/sh
 set -e
-DICE_SRC=/tmp/dice-src DICE_IMAGE=pc bash /tmp/dice-src/install.sh
-rm -rf /tmp/dice-src
+SRC=/usr/local/src/dice-src
+if [ ! -f "$SRC/install.sh" ]; then
+  echo "DiceOS: $SRC/install.sh isn't in the image. Is config/includes.chroot_after_packages being copied?" >&2
+  ls -la /usr/local/src >&2 || true
+  exit 1
+fi
+DICE_SRC="$SRC" DICE_IMAGE=pc bash "$SRC/install.sh"
+rm -rf "$SRC"
 apt-get clean
 HOOK
 chmod +x config/hooks/normal/9000-dice.hook.chroot
