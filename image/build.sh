@@ -48,7 +48,7 @@ rm -f "$R/etc/resolv.conf"; cp /etc/resolv.conf "$R/etc/resolv.conf"
 printf '#!/bin/sh\nexit 101\n' > "$R/usr/sbin/policy-rc.d"; chmod +x "$R/usr/sbin/policy-rc.d"
 mkdir -p "$R/tmp/dice-src"
 tar -C "$HERE" --exclude=.git --exclude=dist -cf - . | tar -C "$R/tmp/dice-src" -xf -
-chroot "$R" /usr/bin/env DICE_SRC=/tmp/dice-src DICE_IMAGE=1 bash /tmp/dice-src/install.sh
+chroot "$R" /usr/bin/env DICE_SRC=/tmp/dice-src DICE_IMAGE=pi bash /tmp/dice-src/install.sh
 chroot "$R" apt-get clean
 rm -rf "$R/tmp/dice-src" "$R/var/lib/apt/lists/"* "$R/usr/sbin/policy-rc.d"
 rm -f "$R/etc/resolv.conf"

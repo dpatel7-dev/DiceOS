@@ -1,10 +1,10 @@
 # Dice
 
-An operating system for the Raspberry Pi, made of pixel worlds. Your desktop is [DiceWeb](https://github.com/dpatel7-dev/DiceWeb), with a real Terminal, real files, Wi-Fi, sound, brightness and power.
+An operating system for the Raspberry Pi and for PCs, made of pixel worlds. Your desktop is [DiceWeb](https://github.com/dpatel7-dev/DiceWeb), with a real Terminal, real files, Wi-Fi, sound, brightness and power.
 
 **Set it up and get it:** https://djp7.pythonanywhere.com/dice
 
-## Getting it onto a card
+## On a Raspberry Pi
 
 1. On the website, fill in **Make it yours** and press **Save dice.json**.
 2. Download **dice-arm64.img.xz** from this project's Releases.
@@ -14,15 +14,28 @@ An operating system for the Raspberry Pi, made of pixel worlds. Your desktop is 
 
 No administrator password on your computer? Copy both files onto a USB stick and let the Pi 5 write the card itself with Network Install. The website shows each step.
 
-Already running Raspberry Pi OS (64-bit)?
+The user is `dice`, password `dice`, until you set one.
+
+## On a PC
+
+Any 64-bit PC (Intel or AMD) that can start from a USB stick.
+
+1. Download **dice-amd64.iso** from this project's Releases.
+2. Write it onto a USB stick (8 GB or more) with Raspberry Pi Imager (**Use custom**) or balenaEtcher. Everything on the stick is wiped.
+3. Plug the stick into the PC, switch it on, and pick the stick from its start-up menu (usually F12, F11, F9 or Esc as it starts).
+4. Pick **Dice** to try it from the stick, or **Install** to put it on the PC's own drive (that wipes the drive, and asks for your name and a password).
+
+Dice on the stick starts fresh each time. To bring your settings, put `dice.json` on a second USB stick and plug that in too.
+
+## Already running Linux?
+
+On a Pi with Raspberry Pi OS (64-bit), or a PC with Debian or Ubuntu (64-bit):
 
 ```
 curl -fsSL https://djp7.pythonanywhere.com/dice/install.sh | sudo bash
 ```
 
 Add `-s -- CODE` to the end with a setup code from the website. To take Dice off again: `sudo /opt/dice/bin/dice-uninstall`
-
-The user is `dice`, password `dice`, until you set one.
 
 ## dice.json
 
@@ -50,20 +63,21 @@ Everything is optional. Leave something out and Dice asks on the screen instead.
 }
 ```
 
-At start-up, `dice-boot` looks for `dice.json` on the card's bootfs drive, then on any USB stick. It applies it, wipes the passwords out, and renames it `dice-applied.json`. Drop a new one on the card to change things again.
+At start-up, `dice-boot` looks for `dice.json` on the Pi card's bootfs drive (or in `/etc/dice/` on a PC), then on USB sticks. It only looks at USB sticks and other removable drives, never the computer's own disks, and opens them read-only until it finds one. It applies it, wipes the passwords out, and renames it `dice-applied.json`. Drop a new one on the card to change things again.
 
 ## How it works
 
-- **cage** (a one-window Wayland compositor) runs **Chromium** full screen on DiceWeb, as the person who uses the Pi.
+- **cage** (a one-window Wayland compositor) runs **Chromium** full screen on DiceWeb, as the person who uses the computer.
 - **diced** (`daemon/diced.py`, Python standard library only) serves DiceWeb on 127.0.0.1:7070 and does the real things: Wi-Fi through NetworkManager, volume through PipeWire (or ALSA), brightness, files in your home folder and on USB sticks, a real shell over a WebSocket, opening Chromium for websites, power and updates. It only answers this machine, and only requests carrying the secret it put in the desktop page.
 - **dice-boot** applies `dice.json` and starts the desktop. **dice-update** gets the newest Dice from the website (weekly, if automatic updates are on).
-- A Plymouth boot splash: a pixel die whose dots light up as the Pi starts.
+- A Plymouth start-up splash: the Dice die turning slowly, with a loading bar. `node tools/make-splash.js` draws its pictures from the same `die3d.js` DiceWeb uses.
 
-## Building the image
+## Building the images
 
-GitHub Actions builds it (`.github/workflows/image.yml`) on an arm64 machine: it takes the newest Raspberry Pi OS Lite (64-bit), installs Dice into it with `install.sh`, and attaches `dice-arm64.img.xz` to a release. Run it from the Actions tab (Build the Dice image, Run workflow), or push a tag like `v1.0.0`.
+GitHub Actions builds both (`.github/workflows/image.yml`) and attaches them to a release. Run it from the Actions tab (Build the Dice images, Run workflow), or push a tag like `v1.1.0`.
 
-To build it on any arm64 Linux machine: `sudo bash image/build.sh`
+- **Raspberry Pi** (`image/build.sh`, on an arm64 machine): the newest Raspberry Pi OS Lite (64-bit) with Dice installed into it by `install.sh`, as `dice-arm64.img.xz`.
+- **PC** (`image/build-pc.sh`, in a Debian container): a Debian 13 live system made with live-build, with the drivers and firmware PCs need, Dice installed into it by the same `install.sh`, and the Debian installer on the start-up menu, as `dice-amd64.iso`.
 
 ## Tests
 

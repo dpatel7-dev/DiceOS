@@ -1,4 +1,4 @@
-name: Build the Dice image
+name: Build the Dice images
 
 on:
   workflow_dispatch:
@@ -9,19 +9,43 @@ permissions:
   contents: write
 
 jobs:
-  image:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make the release (once)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(cat VERSION)
+          gh release view "v$VER" >/dev/null 2>&1 || gh release create "v$VER" --title "Dice $VER" --notes-file image/RELEASE.md
+
+  pi:
+    needs: release
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - name: Tools for building disk images
         run: sudo apt-get update && sudo apt-get install -y parted e2fsprogs zerofree xz-utils
-      - name: Build
+      - name: Build the Raspberry Pi image
         run: sudo WORK="$RUNNER_TEMP/dice-image" bash image/build.sh
       - name: Publish to Releases
         env:
           GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v$(cat VERSION)" dist/dice-arm64.img.xz dist/dice-arm64.img.xz.sha256 --clobber
+
+  pc:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the PC image (inside Debian, which has live-build)
+        run: sudo docker run --rm --privileged -v "$PWD:/src" -w /src debian:trixie bash image/build-pc.sh
+      - name: Publish to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          VER=$(cat VERSION)
-          gh release view "v$VER" >/dev/null 2>&1 || gh release create "v$VER" --title "Dice $VER" --notes-file image/RELEASE.md
-          gh release upload "v$VER" dist/dice-arm64.img.xz dist/dice-arm64.img.xz.sha256 --clobber
+          sudo chown -R "$(id -u)" dist
+          gh release upload "v$(cat VERSION)" dist/dice-amd64.iso dist/dice-amd64.iso.sha256 --clobber

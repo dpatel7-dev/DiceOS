@@ -19,6 +19,7 @@ class BootTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.ran = []
         boot.SETTINGS = os.path.join(self.tmp, 'etc', 'settings.json')
+        boot.APPLIED = os.path.join(self.tmp, 'var', 'applied')
         boot.sh = lambda cmd, **kw: (self.ran.append((cmd, kw.get('input'))), (0, ''))[1]
         boot.user = lambda: 'dice'
         boot.wait_for_networkmanager = lambda seconds=40: True
@@ -84,6 +85,33 @@ class BootTest(unittest.TestCase):
         self.assertNotIn('password', left)
         self.assertEqual(left['wifi'], {'ssid': 'n'})
         self.assertIn('applied', left)
+        # and it's remembered, for sticks that can't be written to
+        self.assertEqual(len(open(boot.APPLIED).read().split()), 1)
+
+    def test_only_usb_sticks_are_looked_at(self):
+        # a fake /sys/block: the PC's own disk, a USB stick, a card reader, and the stick Dice started from
+        sysb = os.path.join(self.tmp, 'sys', 'block')
+        dev = os.path.join(self.tmp, 'sys', 'devices')
+        def disk(name, path, parts, removable='0'):
+            real = os.path.join(dev, path, name)
+            os.makedirs(real)
+            open(os.path.join(real, 'removable'), 'w').write(removable)
+            for p in parts:
+                os.makedirs(os.path.join(real, p))
+            os.makedirs(sysb, exist_ok=True)
+            os.symlink(real, os.path.join(sysb, name))
+        disk('sda', 'pci0000:00/ata1/host0', ['sda1', 'sda2'])            # the computer's own disk
+        disk('sdb', 'pci0000:00/usb2/2-1/host6', ['sdb1'])                # a USB stick
+        disk('sdc', 'pci0000:00/mmc0/host7', [], removable='1')            # a card reader, no partitions
+        disk('sdd', 'pci0000:00/usb3/3-2/host8', ['sdd1', 'sdd2'])        # the live USB Dice started from
+        boot.mounted = lambda: {'/dev/sdd1'}
+        self.assertEqual(boot.usb_parts(sysb), ['/dev/sdb1', '/dev/sdc'])
+
+    def test_wifi_card_found_by_name(self):
+        boot.sh = lambda cmd, **kw: (0, 'enp3s0:ethernet\nwlp2s0:wifi\nlo:loopback')
+        self.assertEqual(boot.wifi_device(), 'wlp2s0')
+        boot.sh = lambda cmd, **kw: (1, '')
+        self.assertEqual(boot.wifi_device(), 'wlan0')
 
 
 if __name__ == '__main__':
