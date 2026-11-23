@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Builds Dice for PCs: a 64-bit Debian live system with Dice already in it, as
+# Builds DiceOS for PCs: a 64-bit Debian live system with DiceOS already in it, as
 # dist/dice-amd64.iso.
 #
 # Write the .iso onto a USB stick (with Raspberry Pi Imager: "Use custom", or
-# balenaEtcher), start the PC from the stick, and Dice opens. To keep Dice on
+# balenaEtcher), start the PC from the stick, and DiceOS opens. To keep DiceOS on
 # the PC for good, pick "Install" in the stick's start-up menu: it asks for a
-# name and a password, then puts Dice on the PC's own drive.
+# name and a password, then puts DiceOS on the PC's own drive.
 #
 # live-build only runs on Debian, so on GitHub Actions this runs inside a
 # Debian container (see .github/workflows/image.yml):
@@ -32,7 +32,7 @@ lb config \
   --debian-installer live \
   --debian-installer-gui false \
   --bootappend-live "boot=live components quiet splash username=dice hostname=dice" \
-  --iso-application "Dice $VER" \
+  --iso-application "DiceOS $VER" \
   --iso-volume "DICE" \
   --memtest none \
   --apt-recommends false
@@ -89,4 +89,4 @@ ISO=$(ls -1 ./*.iso | head -n1)
 mv "$ISO" "$OUT/dice-amd64.iso"
 cd "$OUT"
 sha256sum dice-amd64.iso > dice-amd64.iso.sha256
-echo "Built Dice $VER for PCs: $(du -h dice-amd64.iso | cut -f1)"
+echo "Built DiceOS $VER for PCs: $(du -h dice-amd64.iso | cut -f1)"

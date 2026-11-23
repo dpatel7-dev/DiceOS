@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Starts the PC image in QEMU (a real emulator of a whole PC), presses Enter at
 # the start-up menu, takes a picture of the screen every 15 seconds, and checks
-# that Dice's desktop came up: the last picture has lots of colours, where a
+# that DiceOS's desktop came up: the last picture has lots of colours, where a
 # black screen or a text console has hardly any.
 #
 #   bash image/test-pc.sh dist/dice-amd64.iso shots
@@ -30,7 +30,7 @@ trap 'kill "$(cat "$PID" 2>/dev/null)" 2>/dev/null || true' EXIT
 
 for i in $(seq 1 "$SHOTS"); do
   sleep 15
-  # the start-up menu waits for a key; Enter picks the first choice (Dice)
+  # the start-up menu waits for a key; Enter picks the first choice (DiceOS)
   if [ "$i" -le 2 ]; then mon 'sendkey ret'; fi
   n=$(printf '%02d' "$i")
   mon "screendump $PWD/$OUT/$n.ppm"
@@ -43,8 +43,8 @@ done
 last=$(ls "$OUT"/*.png | tail -n1)
 colours=$(identify -format '%k' "$last")
 if [ "$colours" -lt 400 ]; then
-  echo "Dice's desktop didn't come up: the last picture ($last) has only $colours colours."
+  echo "DiceOS's desktop didn't come up: the last picture ($last) has only $colours colours."
   echo "Look at the pictures (they're attached to this run) to see where it stopped."
   exit 1
 fi
-echo "Dice started: the last picture has $colours colours."
+echo "DiceOS started: the last picture has $colours colours."

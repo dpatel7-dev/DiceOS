@@ -89,6 +89,49 @@ class DicedTest(unittest.TestCase):
         self.assertNotIn('password', saved)
         self.assertNotIn('wifi', saved)
 
+    def test_home_assistant_token_stays_here(self):
+        # a pretend Home Assistant on this computer
+        import http.server
+        seen = []
+
+        class HA(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def reply(self, data):
+                body = json.dumps(data).encode()
+                self.send_response(200 if self.headers.get('Authorization') == 'Bearer abc123' else 401)
+                self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+
+            def do_GET(self):
+                seen.append(('GET', self.path)); self.reply([{'entity_id': 'light.desk', 'state': 'on', 'attributes': {'friendly_name': 'Desk'}}])
+
+            def do_POST(self):
+                n = int(self.headers.get('Content-Length') or 0)
+                seen.append(('POST', self.path, json.loads(self.rfile.read(n) or b'{}'))); self.reply([])
+
+        ha = http.server.ThreadingHTTPServer(('127.0.0.1', 0), HA)
+        threading.Thread(target=ha.serve_forever, daemon=True).start()
+        try:
+            code, r = self.j('POST', '/api/settings', {'homeassistant': 'http://127.0.0.1:%d' % ha.server_address[1], 'ha_token': 'abc123'})
+            self.assertEqual(code, 200)
+            self.assertTrue(r['settings']['ha_token_set'])
+            self.assertNotIn('ha_token', json.load(open(self.settings)), 'the token is not in the settings file')
+            self.assertEqual(oct(os.stat(diced.ha_token_path(self.settings)).st_mode & 0o777), '0o600')
+            code, page = self.req('GET', '/', token=False)
+            self.assertNotIn(b'abc123', page, 'the token never reaches the page')
+            code, r = self.j('POST', '/api/ha', {'path': '/api/states'})
+            self.assertEqual(r['data'][0]['entity_id'], 'light.desk')
+            code, r = self.j('POST', '/api/ha', {'path': '/api/services/light/toggle', 'body': {'entity_id': 'light.desk'}})
+            self.assertTrue(r['ok'])
+            self.assertEqual(seen[-1], ('POST', '/api/services/light/toggle', {'entity_id': 'light.desk'}))
+            code, r = self.j('POST', '/api/ha', {'path': '/api/config/core/restart'})
+            self.assertFalse(r['ok'], 'only states and services')
+            code, r = self.j('POST', '/api/ha', {'path': '/api/states/../config'})
+            self.assertFalse(r['ok'])
+        finally:
+            ha.shutdown()
+
     def test_files(self):
         rel = '~/' + os.path.basename(self.play)
         self.assertEqual(self.j('POST', '/api/files', {'op': 'mkdir', 'path': rel + '/box'})[0], 200)

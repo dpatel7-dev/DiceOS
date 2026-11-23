@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Dice image: the newest Raspberry Pi OS Lite (64-bit) with Dice
+# Builds the DiceOS image: the newest Raspberry Pi OS Lite (64-bit) with DiceOS
 # already in it, as dist/dice-arm64.img.xz, ready for Raspberry Pi Imager to
 # write onto a microSD card or an NVMe drive.
 #
@@ -24,7 +24,7 @@ fi
 xz -dc base.img.xz > dice.img
 rm base.img.xz
 
-# 2. room for Dice: grow the main partition by 3 GB
+# 2. room for DiceOS: grow the main partition by 3 GB
 truncate -s +3G dice.img
 parted -s dice.img resizepart 2 100%
 LOOP=$(losetup -fP --show dice.img)
@@ -42,7 +42,7 @@ mount "${LOOP}p2" "$R"
 mount "${LOOP}p1" "$R/boot/firmware"
 mount --bind /dev "$R/dev"; mount --bind /dev/pts "$R/dev/pts"; mount -t proc proc "$R/proc"; mount -t sysfs sys "$R/sys"
 
-# 3. install Dice inside it (no services start while building)
+# 3. install DiceOS inside it (no services start while building)
 cp -a "$R/etc/resolv.conf" "$WORK/resolv.conf.keep" 2>/dev/null || true
 rm -f "$R/etc/resolv.conf"; cp /etc/resolv.conf "$R/etc/resolv.conf"
 printf '#!/bin/sh\nexit 101\n' > "$R/usr/sbin/policy-rc.d"; chmod +x "$R/usr/sbin/policy-rc.d"
@@ -66,4 +66,4 @@ xz -T0 -6 -c dice.img > "$OUT/dice-arm64.img.xz"
 rm dice.img
 cd "$OUT"
 sha256sum dice-arm64.img.xz > dice-arm64.img.xz.sha256
-echo "Built Dice $VER: $(du -h dice-arm64.img.xz | cut -f1)"
+echo "Built DiceOS $VER: $(du -h dice-arm64.img.xz | cut -f1)"

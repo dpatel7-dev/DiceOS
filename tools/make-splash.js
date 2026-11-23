@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Draws the start-up splash pictures into plymouth/dice/: the Dice die (the
 // same one DiceWeb draws, from diceweb/js/die3d.js) turning round, in 32
-// frames, plus the word Dice and the pieces of the loading bar.
+// frames, plus the word DiceOS and the pieces of the loading bar.
 // Node 18 or newer, nothing to install:  node tools/make-splash.js
 'use strict';
 const fs = require('fs');
@@ -38,12 +38,14 @@ function png(file, w, h, rgba, scale) {
   fs.writeFileSync(file, Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]));
 }
 
-// ---- the word "Dice", 5 by 7 letters ----------------------------------------
+// ---- the word "DiceOS", 5 by 7 letters --------------------------------------
 const FONT = {
   D: ['1110.', '1..1.', '1...1', '1...1', '1...1', '1..1.', '1110.'],
   i: ['..1..', '.....', '.11..', '..1..', '..1..', '..1..', '.111.'],
   c: ['.....', '.....', '.111.', '1....', '1....', '1....', '.111.'],
   e: ['.....', '.....', '.111.', '1...1', '11111', '1....', '.111.'],
+  O: ['.111.', '1...1', '1...1', '1...1', '1...1', '1...1', '.111.'],
+  S: ['.1111', '1....', '1....', '.111.', '....1', '....1', '1111.'],
 };
 function word(text) {
   const w = text.length * 6 - 1, h = 7, px = new Uint8Array(w * h * 4);
@@ -61,7 +63,7 @@ for (let i = 0; i < FRAMES; i++) {
   const img = DIE.render(SIZE, M, { ss: 4, outline: OUTLINE });
   png(path.join(OUT, 'die' + i + '.png'), img.w, img.h, img.data, SCALE);
 }
-const wd = word('Dice');
+const wd = word('DiceOS');
 png(path.join(OUT, 'word.png'), wd.w, wd.h, wd.px, 6);
 const on = block(4, 2, [243, 243, 245, 255]), off = block(4, 2, [58, 58, 66, 255]);
 png(path.join(OUT, 'seg-on.png'), on.w, on.h, on.px, 4);
