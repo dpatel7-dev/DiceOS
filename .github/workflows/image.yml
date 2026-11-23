@@ -1,0 +1,27 @@
+name: Build the Dice image
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools for building disk images
+        run: sudo apt-get update && sudo apt-get install -y parted e2fsprogs zerofree xz-utils
+      - name: Build
+        run: sudo WORK="$RUNNER_TEMP/dice-image" bash image/build.sh
+      - name: Publish to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(cat VERSION)
+          gh release view "v$VER" >/dev/null 2>&1 || gh release create "v$VER" --title "Dice $VER" --notes-file image/RELEASE.md
+          gh release upload "v$VER" dist/dice-arm64.img.xz dist/dice-arm64.img.xz.sha256 --clobber

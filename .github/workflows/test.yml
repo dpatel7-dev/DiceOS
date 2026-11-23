@@ -1,0 +1,9 @@
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s daemon -v
+      - run: bash -n install.sh && bash -n image/build.sh && sh -n bin/dice-session && sh -n bin/dice-update && sh -n bin/dice-suite && sh -n bin/dice-uninstall && python3 -m py_compile bin/dice-boot
