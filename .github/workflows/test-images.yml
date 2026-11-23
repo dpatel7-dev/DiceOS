@@ -1,0 +1,39 @@
+name: Test the images in an emulator
+
+# After the images are built (or when you press Run workflow), start the PC
+# image in QEMU and save pictures of its screen, so you can see Dice start up
+# without a spare computer. The pictures are attached to the run.
+# (The Raspberry Pi image isn't started: QEMU can't pretend to be a Pi 5 yet.)
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['Build the Dice images']
+    types: [completed]
+
+jobs:
+  pc:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools (QEMU, and ImageMagick for the pictures)
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 socat imagemagick
+      - name: Let QEMU use the processor's own virtualisation (much faster)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+      - name: Get the newest PC image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "v$(cat VERSION)" --pattern 'dice-amd64.iso' --dir dist
+      - name: Start it and take pictures
+        run: bash image/test-pc.sh dist/dice-amd64.iso shots
+      - name: Keep the pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dice-pc-screen
+          path: shots/

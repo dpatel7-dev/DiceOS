@@ -72,6 +72,11 @@ At start-up, `dice-boot` looks for `dice.json` on the Pi card's bootfs drive (or
 - **dice-boot** applies `dice.json` and starts the desktop. **dice-update** gets the newest Dice from the website (weekly, if automatic updates are on).
 - A Plymouth start-up splash: the Dice die turning slowly, with a loading bar. `node tools/make-splash.js` draws its pictures from the same `die3d.js` DiceWeb uses.
 
+## Trying it first
+
+- **In your browser:** the [emulator](https://djp7.pythonanywhere.com/dice/try) starts Dice with your settings on a pretend Raspberry Pi or PC. It shows the start-up screen, what dice-boot did with your dice.json (and any problems with it), then the real desktop on top of a pretend computer.
+- **The real image, in QEMU:** after each build, Actions runs *Test the images in an emulator*, which starts `dice-amd64.iso` in QEMU and keeps a picture of the screen every 15 seconds (they're attached to the run). On a Linux computer with QEMU: `bash image/test-pc.sh dice-amd64.iso shots`. The Pi image isn't tried this way, because QEMU can't pretend to be a Pi 5 yet.
+
 ## Building the images
 
 GitHub Actions builds both (`.github/workflows/image.yml`) and attaches them to a release. Run it from the Actions tab (Build the Dice images, Run workflow), or push a tag like `v1.1.0`.
