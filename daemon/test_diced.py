@@ -185,6 +185,23 @@ class DicedTest(unittest.TestCase):
         finally:
             shutil.rmtree(etc, ignore_errors=True)
 
+    def test_finding_files(self):
+        home = tempfile.mkdtemp()
+        try:
+            for p in ('Documents/essay draft.txt', 'Documents/old/Essay notes.md', 'Music/song.mp3', '.secret/essay.txt', 'node_modules/essay.js'):
+                full = os.path.join(home, p)
+                os.makedirs(os.path.dirname(full), exist_ok=True)
+                open(full, 'w').close()
+            f = diced.Files.__new__(diced.Files)
+            f.user, f.home, f.roots = 'me', os.path.realpath(home), [os.path.realpath(home)]
+            got = [x['path'] for x in f.find('essay')]
+            self.assertEqual(got, ['~/Documents/essay draft.txt', '~/Documents/old/Essay notes.md'])  # not hidden ones, not node_modules
+            self.assertEqual([x['name'] for x in f.find('ess notes')], ['Essay notes.md'])
+            self.assertTrue(f.find('documents')[0]['dir'])
+            self.assertEqual(f.find('   '), [])
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
     def test_power_key(self):
         # capabilities/key: words of a long each, most significant first; KEY_POWER is bit 116
         self.assertIn(116, diced.key_bits('10000000000000 0', 64))
