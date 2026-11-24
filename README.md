@@ -46,6 +46,12 @@ curl -fsSL https://djp7.pythonanywhere.com/dice/install.sh | sudo bash
 
 Add `-s -- CODE` to the end with a setup code from the website. To take DiceOS off again: `sudo /opt/dice/bin/dice-uninstall`
 
+## Remotes for a TV build
+
+- **Your TV's own remote** works through the HDMI cable (HDMI-CEC), once CEC is on in the TV's settings (Anynet+, Bravia Sync, SimpLink…).
+- **An air mouse** (like the iPazzPort remote with a keyboard on the back): plug in its USB stick, or pair it in Settings, Bluetooth. Point to move the big pointer, click to pick. The right button and Back go back, Home goes home, and resting the pointer at the end of a row scrolls it. The keyboard types straight into any box (set the on-screen keyboard to Never in Settings, Remotes). The power button sleeps DiceOS; hold it for 5 seconds to shut down.
+- **Edges cut off?** Some TVs crop the picture. Settings, Remotes, "Fit the picture to the TV" (or the zoom keys) shrinks it until you can see the edges.
+
 ## dice.json
 
 Everything is optional. Leave something out and DiceOS asks on the screen instead.
@@ -77,7 +83,7 @@ At start-up, `dice-boot` looks for `dice.json` on the Pi card's bootfs drive (or
 ## How it works
 
 - **cage** (a one-window Wayland compositor) runs **Chromium** full screen on DiceWeb, as the person who uses the computer.
-- **diced** (`daemon/diced.py`, Python standard library only) serves DiceWeb on 127.0.0.1:7070 and does the real things: Wi-Fi through NetworkManager, Bluetooth through bluetoothctl, the TV's own remote through HDMI-CEC (cec-client), volume through PipeWire (or ALSA), brightness, files in your home folder and on USB sticks, screenshots with grim, a real shell over a WebSocket, opening Chromium for websites, power and updates. It only answers this machine, and only requests carrying the secret it put in the desktop page.
+- **diced** (`daemon/diced.py`, Python standard library only) serves DiceWeb on 127.0.0.1:7070 and does the real things: Wi-Fi through NetworkManager, Bluetooth through bluetoothctl, the TV's own remote through HDMI-CEC (cec-client), the power button on air mice and media keyboards (read from /dev/input, so it sleeps DiceOS instead of switching everything off), volume through PipeWire (or ALSA), brightness, files in your home folder and on USB sticks, screenshots with grim, a real shell over a WebSocket, opening Chromium for websites, power and updates. It only answers this machine, and only requests carrying the secret it put in the desktop page.
 - **dice-boot** applies `dice.json` and starts the desktop. **dice-update** gets the newest DiceOS from the website (weekly, if automatic updates are on).
 - A Plymouth start-up splash: the Dice die turning slowly, with a loading bar. `node tools/make-splash.js` draws its pictures from the same `die3d.js` DiceWeb uses.
 

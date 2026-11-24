@@ -171,6 +171,28 @@ class DicedTest(unittest.TestCase):
         self.assertEqual(q.get_nowait(), {'a': 'up', 'key': 'up'})
         self.assertFalse(r.send('format the disk')['ok'])
 
+    def test_version_comes_from_the_version_file(self):
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(diced.__file__))), 'VERSION')) as f:
+            self.assertEqual(diced.VERSION, f.read().strip())
+
+    def test_power_key(self):
+        # capabilities/key: words of a long each, most significant first; KEY_POWER is bit 116
+        self.assertIn(116, diced.key_bits('10000000000000 0', 64))
+        self.assertIn(116, diced.key_bits('100000 0 0 0', 32))  # a 32-bit kernel
+        self.assertIn(30, diced.key_bits('1000000000007 ff800000000007ff febeffdfffefffff fffffffffffffffe', 64))  # a keyboard: KEY_A
+        self.assertNotIn(116, diced.key_bits('0'))
+        self.assertEqual(diced.key_bits(''), set())
+        ev = diced.INPUT_EVENT
+        raw = ev.pack(0, 0, 4, 4, 0x70) + ev.pack(0, 0, 1, 116, 1) + ev.pack(0, 0, 0, 0, 0) + ev.pack(0, 0, 1, 116, 0)
+        self.assertEqual(diced.parse_input_events(raw), [(116, 1), (116, 0)])
+        got = []
+        pk = diced.PowerKeys(got.append, root='/nonexistent')
+        pk.handle(raw)
+        pk.handle(raw)  # the same press from a second device, at once
+        self.assertEqual(got, [{'a': 'power', 'key': 'Power'}])
+        pk.start()
+        self.assertFalse(pk.started)  # nothing to watch here
+
     def test_remote_events_stream(self):
         import http.client
         code, r = self.j('GET', '/api/remote')
