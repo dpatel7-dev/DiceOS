@@ -175,6 +175,16 @@ class DicedTest(unittest.TestCase):
         with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(diced.__file__))), 'VERSION')) as f:
             self.assertEqual(diced.VERSION, f.read().strip())
 
+    def test_updates_bring_the_power_button_rule(self):
+        etc = tempfile.mkdtemp()
+        try:
+            self.assertTrue(diced.ensure_system_files(etc=etc))
+            with open(os.path.join(etc, 'systemd', 'logind.conf.d', 'dice.conf')) as f:
+                self.assertIn('HandlePowerKey=ignore', f.read())
+            self.assertFalse(diced.ensure_system_files(etc=etc))  # already there
+        finally:
+            shutil.rmtree(etc, ignore_errors=True)
+
     def test_power_key(self):
         # capabilities/key: words of a long each, most significant first; KEY_POWER is bit 116
         self.assertIn(116, diced.key_bits('10000000000000 0', 64))
