@@ -49,7 +49,7 @@ Add `-s -- CODE` to the end with a setup code from the website. To take DiceOS o
 ## Remotes for a TV build
 
 - **Your TV's own remote** works through the HDMI cable (HDMI-CEC), once CEC is on in the TV's settings (Anynet+, Bravia Sync, SimpLink…).
-- **An air mouse** (like the iPazzPort remote with a keyboard on the back): plug in its USB stick, or pair it in Settings, Bluetooth. Point to move the big pointer, click to pick. The right button and Back go back, Home goes home, and resting the pointer at the end of a row scrolls it. The keyboard types straight into any box (set the on-screen keyboard to Never in Settings, Remotes). The power button sleeps DiceOS; hold it for 5 seconds to shut down.
+- **An air mouse** (like the iPazzPort remote with a keyboard on the back): plug in its USB stick, or pair it in Settings, Bluetooth. Point to move the big pointer, click to pick. The right button and Back go back, Home goes home, and resting the pointer at the end of a row scrolls it. The keyboard types straight into any box: the on-screen keyboard comes up when you pick one, and gets out of the way as soon as you type on the real one. The power button sleeps DiceOS; hold it for 5 seconds to shut down.
 - **Edges cut off?** Some TVs crop the picture. Settings, Remotes, "Fit the picture to the TV" (or the zoom keys) shrinks it until you can see the edges.
 
 ## dice.json
