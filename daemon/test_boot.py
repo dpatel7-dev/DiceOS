@@ -29,6 +29,8 @@ class BootTest(unittest.TestCase):
         self.files = {}
 
         def fake_open(path, mode='r', *a, **k):
+            if str(path).startswith('/var/log/'):  # logs go nowhere (the test isn't root on GitHub)
+                return real_open(os.devnull, mode, *a, **k)
             if str(path).startswith('/etc/'):
                 if 'w' in mode:
                     import io

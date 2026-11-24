@@ -66,6 +66,7 @@ mkdir -p /etc/dice /var/lib/dice
 
 say "3 of 5: Setting DiceOS to start with $THIS..."
 cp /opt/dice/system/*.service /opt/dice/system/*.timer /etc/systemd/system/
+install -m 644 /opt/dice/system/dice-session.pam /etc/pam.d/dice-session  # the desktop's own sign-in rules
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable dice.service dice-boot.service dice-update.timer
 # DiceOS takes the screen, so the usual desktop (if there is one) steps aside
