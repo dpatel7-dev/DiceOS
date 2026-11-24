@@ -1,6 +1,6 @@
 # DiceOS
 
-An operating system for the Raspberry Pi and for PCs, made of pixel worlds. Your desktop is [DiceWeb](https://github.com/dpatel7-dev/DiceWeb), with a real Terminal, real files, Wi-Fi, sound, brightness and power.
+An operating system for the Raspberry Pi and for PCs, made of pixel worlds. Your desktop is [DiceWeb](https://github.com/dpatel7-dev/DiceWeb), with a real Terminal, real files, Wi-Fi, Bluetooth, sound, brightness, screenshots and power.
 
 **Set it up and get it:** https://djp7.pythonanywhere.com/dice
 
@@ -77,7 +77,7 @@ At start-up, `dice-boot` looks for `dice.json` on the Pi card's bootfs drive (or
 ## How it works
 
 - **cage** (a one-window Wayland compositor) runs **Chromium** full screen on DiceWeb, as the person who uses the computer.
-- **diced** (`daemon/diced.py`, Python standard library only) serves DiceWeb on 127.0.0.1:7070 and does the real things: Wi-Fi through NetworkManager, volume through PipeWire (or ALSA), brightness, files in your home folder and on USB sticks, a real shell over a WebSocket, opening Chromium for websites, power and updates. It only answers this machine, and only requests carrying the secret it put in the desktop page.
+- **diced** (`daemon/diced.py`, Python standard library only) serves DiceWeb on 127.0.0.1:7070 and does the real things: Wi-Fi through NetworkManager, Bluetooth through bluetoothctl, volume through PipeWire (or ALSA), brightness, files in your home folder and on USB sticks, screenshots with grim, a real shell over a WebSocket, opening Chromium for websites, power and updates. It only answers this machine, and only requests carrying the secret it put in the desktop page.
 - **dice-boot** applies `dice.json` and starts the desktop. **dice-update** gets the newest DiceOS from the website (weekly, if automatic updates are on).
 - A Plymouth start-up splash: the Dice die turning slowly, with a loading bar. `node tools/make-splash.js` draws its pictures from the same `die3d.js` DiceWeb uses.
 

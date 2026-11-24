@@ -156,6 +156,32 @@ class DicedTest(unittest.TestCase):
         code, r = self.j('POST', '/api/open', {'url': 'file:///etc/passwd'})
         self.assertFalse(r['ok'])
 
+    def test_bluetooth_lists(self):
+        devs = diced.parse_bt_devices('Device 5C:BA:37:1F:20:8A Wireless Controller\nDevice 00:1b:66:a2:4c:17 Speaker\nnot a device\nDevice 5C:BA:37:1F:20:8A Wireless Controller')
+        self.assertEqual([d['mac'] for d in devs], ['5C:BA:37:1F:20:8A', '00:1B:66:A2:4C:17'])
+        info = diced.parse_bt_info('Device 5C:BA:37:1F:20:8A (public)\n\tName: Wireless Controller\n\tIcon: input-gaming\n\tPaired: yes\n\tTrusted: yes\n\tConnected: no\n\tBattery Percentage: 0x50 (80)')
+        self.assertEqual((info['paired'], info['connected'], info['icon'], info['battery']), (True, False, 'input-gaming', 80))
+        self.assertTrue(diced.bt_worked(0, 'Attempting to pair with X\nPairing successful'))
+        self.assertFalse(diced.bt_worked(1, 'Failed to pair: org.bluez.Error.AuthenticationFailed'))
+        self.assertIn('pairing mode', diced.friendly_bt('Failed to pair: org.bluez.Error.AuthenticationFailed'))
+
+    def test_bluetooth_only_takes_real_addresses(self):
+        real_has = diced.has
+        diced.has = lambda p: True if p == 'bluetoothctl' else real_has(p)
+        try:
+            for mac in ('', 'AA:BB', '5C:BA:37:1F:20:8A; reboot', '../../etc'):
+                code, r = self.j('POST', '/api/bluetooth', {'action': 'pair', 'mac': mac})
+                self.assertFalse(r['ok'])
+                self.assertIn("isn't a Bluetooth device", r['error'])
+        finally:
+            diced.has = real_has
+
+    def test_screenshot_needs_grim_and_a_screen(self):
+        code, r = self.j('POST', '/api/screenshot', {})
+        self.assertEqual(code, 200)
+        if not diced.has('grim'):
+            self.assertIn('grim', r['error'])
+
     def test_nm_fields(self):
         self.assertEqual(diced.split_nm(r'yes:My\:Net:80'), ['yes', 'My:Net', '80'])
 
