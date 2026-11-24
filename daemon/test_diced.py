@@ -156,6 +156,39 @@ class DicedTest(unittest.TestCase):
         code, r = self.j('POST', '/api/open', {'url': 'file:///etc/passwd'})
         self.assertFalse(r['ok'])
 
+    def test_tv_remote_keys(self):
+        self.assertEqual(diced.parse_cec_key('DEBUG:   [ 1234]\tkey pressed: select (0) current(ff) duration(0)'), ('a', 'select'))
+        self.assertEqual(diced.parse_cec_key('key pressed: F2 (red) (72) current(ff)'), ('red', 'F2 (red)'))
+        self.assertEqual(diced.parse_cec_key('key pressed: channel up (30)'), ('rb', 'channel up'))
+        self.assertEqual(diced.parse_cec_key('key pressed: 7 (27)'), ('d7', '7'))
+        self.assertIsNone(diced.parse_cec_key('key released: select (0) D:120ms'))
+        self.assertIsNone(diced.parse_cec_key('key pressed: something odd (fe)'))
+        r = diced.Remote('/nonexistent/settings.json')
+        q = diced.queue.Queue()
+        r.subs.add(q)
+        self.assertEqual(r.press('key pressed: up (1) current(ff)'), {'a': 'up', 'key': 'up'})
+        self.assertIsNone(r.press('key pressed: up (1) current(ff)'))  # the same press, said twice at once
+        self.assertEqual(q.get_nowait(), {'a': 'up', 'key': 'up'})
+        self.assertFalse(r.send('format the disk')['ok'])
+
+    def test_remote_events_stream(self):
+        import http.client
+        code, r = self.j('GET', '/api/remote')
+        self.assertEqual(code, 200)
+        self.assertIn('available', r)
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+        c.request('GET', '/api/events', headers={'X-Dice': diced.TOKEN})
+        res = c.getresponse()
+        self.assertEqual(res.status, 200)
+        self.assertEqual(res.getheader('Content-Type'), 'text/event-stream')
+        first = res.fp.readline().decode()
+        self.assertTrue(first.startswith('data: ') and '"cec"' in first)
+        c.close()
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)
+        c.request('GET', '/api/events')
+        self.assertEqual(c.getresponse().status, 403)  # not without the secret
+        c.close()
+
     def test_bluetooth_lists(self):
         devs = diced.parse_bt_devices('Device 5C:BA:37:1F:20:8A Wireless Controller\nDevice 00:1b:66:a2:4c:17 Speaker\nnot a device\nDevice 5C:BA:37:1F:20:8A Wireless Controller')
         self.assertEqual([d['mac'] for d in devs], ['5C:BA:37:1F:20:8A', '00:1B:66:A2:4C:17'])
