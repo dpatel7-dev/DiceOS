@@ -46,10 +46,16 @@ curl -fsSL https://djp7.pythonanywhere.com/dice/install.sh | sudo bash
 
 Add `-s -- CODE` to the end with a setup code from the website. To take DiceOS off again: `sudo /opt/dice/bin/dice-uninstall`
 
+## Real apps and DiceGaming
+
+- **The Store** installs real Linux apps from [Flathub](https://flathub.org) with Flatpak: VLC, Kodi, GIMP, LibreOffice, RetroArch and thousands more (on a Pi, the ones Flathub makes for ARM; Steam and Discord need a PC). They update with DiceOS.
+- **DiceGaming** plays the games on your own gaming PC: install [Sunshine](https://github.com/LizardByte/Sunshine) on the PC, then in DiceGaming install Moonlight, add the PC, and pair with the 4 numbers it shows. Xbox Cloud Gaming, GeForce NOW and Amazon Luna are there too, each with your own account.
+
 ## Remotes for a TV build
 
 - **Your TV's own remote** works through the HDMI cable (HDMI-CEC), once CEC is on in the TV's settings (Anynet+, Bravia Sync, SimpLink…).
 - **An air mouse** (like the iPazzPort remote with a keyboard on the back): plug in its USB stick, or pair it in Settings, Bluetooth. Point to move the big pointer, click to pick. The right button and Back go back, Home goes home, and resting the pointer at the end of a row scrolls it. The keyboard types straight into any box: the on-screen keyboard comes up when you pick one, and gets out of the way as soon as you type on the real one. The power button sleeps DiceOS; hold it for 5 seconds to shut down.
+- **Apps and games on top:** apps from the Store, websites, and games from DiceGaming open over Dice. Home on either remote (or Super + Esc on a keyboard) closes the one on top.
 - **Edges cut off?** Some TVs crop the picture. Settings, Remotes, "Fit the picture to the TV" (or the zoom keys) shrinks it until you can see the edges.
 
 ## dice.json

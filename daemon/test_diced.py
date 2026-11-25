@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -151,6 +152,129 @@ class DicedTest(unittest.TestCase):
         self.assertEqual(self.req('GET', '/api/file?path=/etc/passwd')[0], 400)
         self.assertEqual(self.j('POST', '/api/files', {'op': 'text', 'path': '/tmp/escape.txt', 'text': 'x'})[0], 400)
         self.assertEqual(self.j('POST', '/api/files', {'op': 'trash', 'path': '~'})[0], 400)
+
+    def test_trash_moving_and_room(self):
+        rel = '~/' + os.path.basename(self.play)
+        self.j('POST', '/api/files', {'op': 'mkdir', 'path': rel + '/tb'})
+        self.j('POST', '/api/files', {'op': 'mkdir', 'path': rel + '/tb/in'})
+        self.j('POST', '/api/files', {'op': 'text', 'path': rel + '/tb/note.txt', 'text': 'keep me'})
+        # moving, and copying next to itself
+        code, r = self.j('POST', '/api/files', {'op': 'move', 'path': rel + '/tb/note.txt', 'to': rel + '/tb/in'})
+        self.assertEqual((code, r['path']), (200, rel + '/tb/in/note.txt'))
+        self.assertEqual(self.j('POST', '/api/files', {'op': 'move', 'path': rel + '/tb', 'to': rel + '/tb/in'})[0], 400)
+        code, r = self.j('POST', '/api/files', {'op': 'copy', 'path': rel + '/tb/in/note.txt', 'to': rel + '/tb/in'})
+        self.assertEqual(r['path'], rel + '/tb/in/note copy.txt')
+        # into the Trash with a note of where it was, and back again
+        code, r = self.j('POST', '/api/files', {'op': 'trash', 'path': rel + '/tb/in/note.txt'})
+        name = r['path']
+        code, t = self.j('GET', '/api/trash')
+        mine = [i for i in t['items'] if i['name'] == name]
+        self.assertEqual(mine[0]['from'], rel + '/tb/in/note.txt')
+        self.assertEqual(mine[0]['size'], 7)
+        code, r = self.j('POST', '/api/files', {'op': 'restore', 'name': name})
+        self.assertEqual((code, r['path']), (200, rel + '/tb/in/note.txt'))
+        with open(os.path.join(self.play, 'tb', 'in', 'note.txt')) as f:
+            self.assertEqual(f.read(), 'keep me')
+        # its folder gone: it comes back home
+        code, r = self.j('POST', '/api/files', {'op': 'trash', 'path': rel + '/tb/in/note copy.txt'})
+        name = r['path']
+        shutil.rmtree(os.path.join(self.play, 'tb', 'in'))
+        code, r = self.j('POST', '/api/files', {'op': 'restore', 'name': name})
+        self.assertEqual(r['path'], '~/note copy.txt')
+        os.remove(os.path.expanduser(r['path'].replace('~', diced.Files(diced.desktop_user()).home, 1)))
+        # gone for good
+        code, r = self.j('POST', '/api/files', {'op': 'trash', 'path': rel + '/tb'})
+        self.assertEqual(self.j('POST', '/api/files', {'op': 'forget', 'name': r['path']})[1]['count'], 1)
+        self.assertNotIn(r['path'], [i['name'] for i in self.j('GET', '/api/trash')[1]['items']])
+        self.assertEqual(self.j('POST', '/api/files', {'op': 'forget', 'name': '../../etc'})[0], 400)
+        code, u = self.j('GET', '/api/files/usage')
+        self.assertTrue(u['quota'] > u['used'] > 0)
+
+    def test_flathub_catalog(self):
+        import gzip
+        root = tempfile.mkdtemp()
+        apps = diced.Apps(root=root)
+        base = apps.appstream()
+        os.makedirs(os.path.join(base, 'icons', '128x128'))
+        xml = '''<?xml version="1.0"?><components version="0.8" origin="flathub">
+          <component type="desktop-application"><id>org.videolan.VLC</id><name>VLC</name><name xml:lang="fr">VLC fr</name>
+            <summary>VLC media player, the open-source multimedia framework</summary><icon type="cached" width="128" height="128">org.videolan.VLC.png</icon>
+            <categories><category>AudioVideo</category><category>Player</category></categories></component>
+          <component type="desktop"><id>com.moonlight_stream.Moonlight.desktop</id><name>Moonlight</name><summary>Stream games from your NVIDIA GameStream and Sunshine servers</summary>
+            <categories><category>Game</category></categories></component>
+          <component type="runtime"><id>org.freedesktop.Platform</id><name>Freedesktop Platform</name></component>
+          <component type="desktop-application"><id>bad id</id><name>Nope</name></component>
+        </components>'''
+        with gzip.open(os.path.join(base, 'appstream.xml.gz'), 'wt') as f:
+            f.write(xml)
+        cat = apps.catalog()
+        self.assertEqual([a['id'] for a in cat], ['org.videolan.VLC', 'com.moonlight_stream.Moonlight'])
+        self.assertEqual((cat[0]['name'], cat[0]['icon'], cat[0]['cats']), ('VLC', True, ['AudioVideo', 'Player']))
+        self.assertEqual([a['id'] for a in apps.search('moon')], ['com.moonlight_stream.Moonlight'])
+        self.assertEqual([a['id'] for a in apps.search('', 'AudioVideo')], ['org.videolan.VLC'])
+        self.assertEqual([a['id'] for a in apps.search('stream games')], ['com.moonlight_stream.Moonlight'])
+        open(os.path.join(base, 'icons', '128x128', 'org.videolan.VLC.png'), 'wb').close()
+        self.assertTrue(apps.icon('org.videolan.VLC').endswith('org.videolan.VLC.png'))
+        self.assertIsNone(apps.icon('../../etc/passwd'))
+        self.assertEqual(apps.install('rm -rf /')['state'], 'failed')
+        shutil.rmtree(root)
+
+    def test_jobs_and_closing_the_app_on_top(self):
+        apps = diced.Apps()
+        j = apps.job('t', 'Testing', [[sys.executable, '-c', 'import sys; [print("Installing", p, "%") for p in (10, 50, 100)]'], [sys.executable, '-c', 'print("ok")']])
+        for _ in range(50):
+            if apps.jobs['t']['state'] != 'working':
+                break
+            time.sleep(0.05)
+        self.assertEqual((apps.jobs['t']['state'], apps.jobs['t']['pct']), ('done', 100))
+        apps.job('f', 'Failing', [[sys.executable, '-c', 'import sys; print("error: No remote refs found for x"); sys.exit(1)']])
+        for _ in range(50):
+            if apps.jobs['f']['state'] != 'working':
+                break
+            time.sleep(0.05)
+        self.assertEqual(apps.jobs['f']['error'], 'No remote refs found for x')
+        # something on top of Dice: Home closes it (and only when something's there)
+        self.assertFalse(apps.close_front())
+        was = os.environ.get('DICE_USER')
+        os.environ['DICE_USER'] = __import__('pwd').getpwuid(os.getuid()).pw_name
+        try:
+            r = apps.launch([sys.executable, '-c', 'import time; time.sleep(30)'], 'Sleepy', 'web', 'x')
+            self.assertTrue(r['ok'])
+            self.assertEqual(apps.front()['name'], 'Sleepy')
+            p = apps.running[-1]['proc']
+            self.assertTrue(apps.close_front())
+            p.wait(timeout=5)
+            self.assertIsNone(apps.front())
+        finally:
+            if was is None:
+                del os.environ['DICE_USER']
+            else:
+                os.environ['DICE_USER'] = was
+        # a remote's Home, and Super + Esc, reach it; other keys don't
+        hits = []
+        keys = diced.PowerKeys(lambda ev: hits.append(ev), home=lambda: hits.append('home') or True)
+        ev = lambda code, value: struct.pack('llHHi', 0, 0, 1, code, value)
+        keys.handle(ev(172, 1) + ev(172, 0))
+        keys.handle(ev(125, 1) + ev(1, 1) + ev(1, 0) + ev(125, 0) + ev(1, 1))
+        self.assertEqual(hits, ['home', 'home'])
+        r = diced.Remote('/nonexistent/settings.json')
+        q = diced.queue.Queue()
+        r.subs.add(q)
+        r.intercept = lambda e: e['a'] in ('home', 'menu')
+        r.press('key pressed: root menu (9) current(ff)')
+        r.press('key pressed: up (1) current(ff)')
+        self.assertEqual(q.get_nowait()['a'], 'up')
+
+    def test_moonlight_game_lists(self):
+        self.assertEqual(diced.Apps.parse_games('Desktop\nSteam Big Picture\n\n'), ['Desktop', 'Steam Big Picture'])
+        self.assertEqual(diced.Apps.parse_games('Name, ID, HDR, App collection, Hidden, Direct launch, Boxart URL\n"Desktop", 1, false, false, false, false, \nSteam Big Picture, 2, false, false, false, false, x'), ['Desktop', 'Steam Big Picture'])
+        apps = diced.Apps(root='/nonexistent')
+        apps.moonlight = lambda: None
+        self.assertEqual(apps.games('pc.local')['need'], 'moonlight')
+        apps.moonlight = lambda: ['true']
+        self.assertFalse(apps.games('pc; rm -rf /')['ok'])
+        self.assertEqual(apps.pair('pc.local', '12345')['state'], 'failed')
+        self.assertFalse(apps.play('pc.local', 'a\nb')['ok'])
 
     def test_only_web_addresses_open(self):
         code, r = self.j('POST', '/api/open', {'url': 'file:///etc/passwd'})
