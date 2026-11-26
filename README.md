@@ -49,12 +49,32 @@ Add `-s -- CODE` to the end with a setup code from the website. To take DiceOS o
 ## Real apps and DiceGaming
 
 - **The Store** installs real Linux apps from [Flathub](https://flathub.org) with Flatpak: VLC, Kodi, GIMP, LibreOffice, RetroArch and thousands more (on a Pi, the ones Flathub makes for ARM; Steam and Discord need a PC). They update with DiceOS.
-- **DiceGaming** plays the games on your own gaming PC: install [Sunshine](https://github.com/LizardByte/Sunshine) on the PC, then in DiceGaming install Moonlight, add the PC, and pair with the 4 numbers it shows. Xbox Cloud Gaming, GeForce NOW and Amazon Luna are there too, each with your own account.
+- **Streaming services are apps**: Netflix, YouTube, DAZN and the rest open full screen on their own (each signed in once, inside it), and Home closes them.
+- **TV channels** on Home: ABC, CBS, NBC, FOX and PBS free from an antenna with a network tuner like an HDHomeRun, or through your live TV service, or in each channel's own app (MSG and YES on DAZN, ESPN in the ESPN app, FOX on FOX One, NBC on Peacock, CBS on Paramount+). Pick yours in TV setup, at the end of the row.
+- **DiceGaming** (on the desktop) plays in the cloud with no gaming PC: Xbox Cloud Gaming, GeForce NOW, Amazon Luna, or your own Dice Cloud PC. If you do have a gaming PC, install [Sunshine](https://github.com/LizardByte/Sunshine) on it, then in DiceGaming install Moonlight, add the PC, and pair with the 4 numbers it shows.
+
+## Deuce, the voice assistant
+
+Hold the microphone button on the air mouse and say what you want: "put on the Knicks game" (it finds the game, the channel it's on and the way you can watch it, and opens it), "put on MSG", "open Netflix", "switch to the PlayStation", "turn it up", "set a timer for 10 minutes", "turn off the TV". The first time, set up its hearing in Settings, Deuce (a one-time download of [Vosk](https://alphacephei.com/vosk/)'s small English model, about 50 MB). It listens on the computer itself; nothing you say goes to a cloud AI. If holding the button does nothing, "Teach it" in the same place.
+
+## Inputs: a switch for your TV
+
+Everything on the TV's other HDMI inputs (a PlayStation, an Xbox, a cable box) shows in Inputs, at the end of TV channels. Pick one and the TV switches to it; the air mouse's buttons go on to it through the HDMI cable, and Home comes back to DiceOS. It needs HDMI-CEC on in the TV and in each device (PlayStation: "Enable HDMI Device Link").
+
+## Dice Cloud PC
+
+A computer of your own in the cloud: rent one with Ubuntu from any cloud company, let in ports 80 and 443, and run
+
+```
+curl -fsSL https://raw.githubusercontent.com/dpatel7-dev/DiceOS/main/cloudpc/install.sh | sudo sh -s -- --desktop
+```
+
+(`--gaming` too, on one with an NVIDIA graphics card). It ends with an address and a key: add them in the Dice Cloud PC app. You get its desktop on your TV, as much room for Dice Cloud as its disk has (your files still locked before they leave), and its games in DiceGaming. The kit is in [`cloudpc/`](cloudpc): `dice-cloud-server` and `install.sh`.
 
 ## Remotes for a TV build
 
 - **Your TV's own remote** works through the HDMI cable (HDMI-CEC), once CEC is on in the TV's settings (Anynet+, Bravia Sync, SimpLink…).
-- **An air mouse** (like the iPazzPort remote with a keyboard on the back): plug in its USB stick, or pair it in Settings, Bluetooth. Point to move the big pointer, click to pick. The right button and Back go back, Home goes home, and resting the pointer at the end of a row scrolls it. The keyboard types straight into any box: the on-screen keyboard comes up when you pick one, and gets out of the way as soon as you type on the real one. The power button sleeps DiceOS; hold it for 5 seconds to shut down.
+- **An air mouse** (like the iPazzPort remote with a keyboard on the back): plug in its USB stick, or pair it in Settings, Bluetooth. Point to move the big pointer, click to pick. The right button and Back go back (held: Home), Home goes home or closes the app on top (held: Quick access), the microphone button talks to Deuce, and resting the pointer at the end of a row scrolls it. The keyboard types straight into any box: the on-screen keyboard comes up when you pick one, and gets out of the way as soon as you type on the real one. The power button turns DiceOS off like a TV (the screen and the TV go off) and turns it back on; hold it for 5 seconds to shut down completely, after which a Pi only starts again with its own power button or by unplugging it.
 - **Apps and games on top:** apps from the Store, websites, and games from DiceGaming open over Dice. Home on either remote (or Super + Esc on a keyboard) closes the one on top.
 - **Edges cut off?** Some TVs crop the picture. Settings, Remotes, "Fit the picture to the TV" (or the zoom keys) shrinks it until you can see the edges.
 
@@ -109,6 +129,7 @@ GitHub Actions builds both (`.github/workflows/image.yml`) and attaches them to 
 
 ```
 python3 -m unittest discover -s daemon
+cd cloudpc && python3 -m unittest test_cloud_server
 ```
 
 `tools/sync-diceweb.sh` copies DiceWeb into `diceweb/` (it sits next to this folder).

@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""dice-cloud-server: the heart of a Dice Cloud PC (a computer of your own, in the cloud).
+
+It keeps Dice Cloud's files for you, with as much room as the computer's disk has, in place of
+the Dice website's small allowance. Every file arrives already locked (each with its own key, on
+your own computer), so this server keeps scrambled parts it can't open, exactly like the website.
+
+It also tells Dice what this computer has (its room, and whether its desktop and games are set up),
+for the Dice Cloud PC app. It speaks plain HTTP on 127.0.0.1; Caddy puts HTTPS in front of it
+(see install.sh). Every request needs the key that install.sh made (the X-Dice-Key header).
+
+    GET    /api/status                        this computer, its room, its desktop and games
+    GET    /dice/cloud/<box>/files            the parts kept, and how much room is used
+    PUT    /dice/cloud/<box>/files/<part>     a part (up to 4 MB)
+    GET    /dice/cloud/<box>/files/<part>     a part
+    DELETE /dice/cloud/<box>/files/<part>     a part
+
+Python's standard library only."""
+import argparse
+import hmac
+import json
+import os
+import re
+import shutil
+import socket
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+VERSION = '1.0.0'
+PART_MAX = 4 * 1024 * 1024 + 4096
+BOX = re.compile(r'^/dice/cloud/([0-9a-f]{32})/files(?:/([0-9a-f]{32}))?$')
+STARTED = time.time()
+
+
+def load_config(path):
+    with open(path) as f:
+        cfg = json.load(f)
+    if not isinstance(cfg.get('key'), str) or len(cfg['key']) < 16:
+        raise SystemExit('The config needs a key of 16 or more characters: ' + path)
+    cfg.setdefault('data', '/var/lib/dice-cloud')
+    cfg.setdefault('name', socket.gethostname())
+    return cfg
+
+
+def used(folder):
+    total = 0
+    try:
+        with os.scandir(folder) as it:
+            for e in it:
+                if e.is_file():
+                    total += e.stat().st_size
+    except OSError:
+        pass
+    return total
+
+
+def all_used(data):
+    total = 0
+    try:
+        with os.scandir(data) as it:
+            for e in it:
+                if e.is_dir():
+                    total += used(e.path)
+    except OSError:
+        pass
+    return total
+
+
+def quota(cfg):
+    """The room for your files: what the config says, or the disk's free room plus what's used,
+    keeping 2 GB back for the computer itself."""
+    if cfg.get('quota_gb'):
+        return int(float(cfg['quota_gb']) * 1024 ** 3)
+    os.makedirs(cfg['data'], exist_ok=True)
+    du = shutil.disk_usage(cfg['data'])
+    return max(0, du.free + all_used(cfg['data']) - 2 * 1024 ** 3)
+
+
+DESKTOP = '/etc/dice-cloud/desktop.json'
+
+
+def has_desktop():
+    return os.path.exists(DESKTOP)
+
+
+def desktop_login():
+    """The desktop's name and password (install.sh made them), for whoever has the key."""
+    try:
+        with open(DESKTOP) as f:
+            d = json.load(f)
+        return {'user': d.get('user', 'dice'), 'password': d.get('password', '')}
+    except (OSError, ValueError):
+        return None
+
+
+def has_gaming():
+    return bool(shutil.which('sunshine'))
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = 'DiceCloudPC/' + VERSION
+    protocol_version = 'HTTP/1.1'
+
+    def log_message(self, fmt, *args):  # quiet (journald gets errors only)
+        pass
+
+    # -- answers --
+    def cors(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Dice-Key')
+        self.send_header('Access-Control-Max-Age', '600')
+
+    def send_json(self, code, data):
+        body = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.cors()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def allowed(self):
+        given = self.headers.get('X-Dice-Key', '')
+        if given and hmac.compare_digest(given.encode(), self.server.cfg['key'].encode()):
+            return True
+        self.send_json(401, {'error': 'That key isn\'t this server\'s.'})
+        return False
+
+    # -- methods --
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header('Content-Length', '0')
+        self.cors()
+        self.end_headers()
+
+    def do_GET(self):
+        path = self.path.split('?', 1)[0]
+        if path == '/':
+            page = ('<!doctype html><meta charset="utf-8"><title>Dice Cloud PC</title><body style="font:16px system-ui;max-width:34em;margin:4em auto;padding:0 1em">'
+                    '<h1>Dice Cloud PC</h1><p>This computer is running. Open <b>Dice Cloud PC</b> on your Dice and add it there with its address and key.</p>'
+                    + ('<p><a href="/desktop/vnc.html?path=desktop/websockify&amp;autoconnect=1&amp;resize=remote">Its desktop</a></p>' if has_desktop() else '')).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+            return
+        if not self.allowed():
+            return
+        if path == '/api/status':
+            cfg, q, u = self.server.cfg, quota(self.server.cfg), all_used(self.server.cfg['data'])
+            try:
+                load = os.getloadavg()[0]
+            except OSError:
+                load = None
+            return self.send_json(200, {'ok': True, 'kind': 'dice-cloud-pc', 'version': VERSION, 'name': cfg['name'], 'uptime': int(time.time() - STARTED),
+                                        'storage': {'used': u, 'quota': q}, 'desktop': has_desktop(), 'login': desktop_login() if has_desktop() else None,
+                                        'gaming': has_gaming(), 'load': load, 'cpus': os.cpu_count()})
+        m = BOX.match(path)
+        if not m:
+            return self.send_json(404, {'error': 'Not here.'})
+        box, part = m.groups()
+        folder = os.path.join(self.server.cfg['data'], box)
+        if part is None:
+            parts = []
+            try:
+                with os.scandir(folder) as it:
+                    for e in it:
+                        if e.is_file() and re.fullmatch(r'[0-9a-f]{32}', e.name):
+                            st = e.stat()
+                            parts.append({'p': e.name, 'size': st.st_size, 'at': int(st.st_mtime)})
+            except OSError:
+                pass
+            return self.send_json(200, {'used': sum(p['size'] for p in parts), 'quota': quota(self.server.cfg), 'part': PART_MAX - 4096, 'parts': parts})
+        try:
+            with open(os.path.join(folder, part), 'rb') as f:
+                data = f.read()
+        except OSError:
+            return self.send_json(404, {'error': 'That part isn\'t here.'})
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'private, max-age=31536000, immutable')
+        self.cors()
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_PUT(self):
+        if not self.allowed():
+            return
+        m = BOX.match(self.path.split('?', 1)[0])
+        if not m or not m.group(2):
+            return self.send_json(404, {'error': 'Not here.'})
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except ValueError:
+            n = 0
+        if n <= 0 or n > PART_MAX:
+            if n > PART_MAX:
+                self.close_connection = True
+            return self.send_json(413 if n > 0 else 400, {'error': 'A part is 4 MB at most.' if n > 0 else 'Nothing was sent.'})
+        data = self.rfile.read(n)
+        if len(data) < 28:  # a locked part always has its 12-byte start and 16-byte seal
+            return self.send_json(400, {'error': 'That isn\'t a locked part.'})
+        box, part = m.groups()
+        folder = os.path.join(self.server.cfg['data'], box)
+        path = os.path.join(folder, part)
+        had = os.path.getsize(path) if os.path.exists(path) else 0
+        if all_used(self.server.cfg['data']) - had + len(data) > quota(self.server.cfg):
+            return self.send_json(507, {'error': 'Your Dice Cloud PC is full.'})
+        os.makedirs(folder, exist_ok=True)
+        tmp = path + '.tmp'
+        with open(tmp, 'wb') as f:
+            f.write(data)
+        os.replace(tmp, path)
+        return self.send_json(200, {'ok': True})
+
+    def do_DELETE(self):
+        if not self.allowed():
+            return
+        m = BOX.match(self.path.split('?', 1)[0])
+        if not m or not m.group(2):
+            return self.send_json(404, {'error': 'Not here.'})
+        try:
+            os.remove(os.path.join(self.server.cfg['data'], m.group(1), m.group(2)))
+        except OSError:
+            pass
+        return self.send_json(200, {'ok': True})
+
+
+def make_server(cfg, host='127.0.0.1', port=8790):
+    srv = ThreadingHTTPServer((host, port), Handler)
+    srv.cfg = cfg
+    srv.daemon_threads = True
+    os.makedirs(cfg['data'], exist_ok=True)
+    return srv
+
+
+def main():
+    ap = argparse.ArgumentParser(description='Dice Cloud PC: keeps your Dice Cloud files (locked) with lots of room.')
+    ap.add_argument('--config', default='/etc/dice-cloud/config.json')
+    ap.add_argument('--host', default='127.0.0.1')
+    ap.add_argument('--port', type=int, default=8790)
+    a = ap.parse_args()
+    make_server(load_config(a.config), a.host, a.port).serve_forever()
+
+
+if __name__ == '__main__':
+    main()

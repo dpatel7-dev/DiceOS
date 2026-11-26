@@ -23,6 +23,9 @@ class BootTest(unittest.TestCase):
         boot.sh = lambda cmd, **kw: (self.ran.append((cmd, kw.get('input'))), (0, ''))[1]
         boot.user = lambda: 'dice'
         boot.wait_for_networkmanager = lambda seconds=40: True
+        # (Popen is the subprocess module's own, shared with diced's tests: put it back after)
+        real_popen = boot.subprocess.Popen
+        self.addCleanup(setattr, boot.subprocess, 'Popen', real_popen)
         boot.subprocess.Popen = lambda *a, **k: self.ran.append((a[0], 'background'))
         # keep it away from the real /etc
         real_open = open

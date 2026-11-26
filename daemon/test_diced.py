@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import diced  # noqa: E402
@@ -153,6 +154,18 @@ class DicedTest(unittest.TestCase):
         self.assertEqual(self.j('POST', '/api/files', {'op': 'text', 'path': '/tmp/escape.txt', 'text': 'x'})[0], 400)
         self.assertEqual(self.j('POST', '/api/files', {'op': 'trash', 'path': '~'})[0], 400)
 
+    def test_dice_cloud_folder(self):
+        rel = '~/' + os.path.basename(self.play) + '/Dice Cloud'
+        # writing makes the folders, and keeps the time it's given
+        code, r = self.req('POST', '/api/file?path=' + urllib.parse.quote(rel + '/Trips/2024/beach.jpg') + '&dirs=1&mtime=1700000000', body=b'jpeg!', raw=True)
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(r)['mtime'], 1700000000)
+        self.req('POST', '/api/file?path=' + urllib.parse.quote(rel + '/notes.txt'), body=b'hi', raw=True)
+        self.req('POST', '/api/file?path=' + urllib.parse.quote(rel + '/.hidden'), body=b'no', raw=True)
+        code, t = self.j('GET', '/api/files/tree?path=' + urllib.parse.quote(rel))
+        self.assertEqual(sorted((f['path'], f['size']) for f in t['files']), [('Trips/2024/beach.jpg', 5), ('notes.txt', 2)])
+        self.assertEqual(self.j('GET', '/api/files/tree?path=/etc')[1]['ok'], False)
+
     def test_trash_moving_and_room(self):
         rel = '~/' + os.path.basename(self.play)
         self.j('POST', '/api/files', {'op': 'mkdir', 'path': rel + '/tb'})
@@ -222,13 +235,13 @@ class DicedTest(unittest.TestCase):
     def test_jobs_and_closing_the_app_on_top(self):
         apps = diced.Apps()
         j = apps.job('t', 'Testing', [[sys.executable, '-c', 'import sys; [print("Installing", p, "%") for p in (10, 50, 100)]'], [sys.executable, '-c', 'print("ok")']])
-        for _ in range(50):
+        for _ in range(200):  # (a busy computer takes a while to start two Pythons)
             if apps.jobs['t']['state'] != 'working':
                 break
             time.sleep(0.05)
         self.assertEqual((apps.jobs['t']['state'], apps.jobs['t']['pct']), ('done', 100))
         apps.job('f', 'Failing', [[sys.executable, '-c', 'import sys; print("error: No remote refs found for x"); sys.exit(1)']])
-        for _ in range(50):
+        for _ in range(200):
             if apps.jobs['f']['state'] != 'working':
                 break
             time.sleep(0.05)
@@ -264,6 +277,79 @@ class DicedTest(unittest.TestCase):
         r.press('key pressed: root menu (9) current(ff)')
         r.press('key pressed: up (1) current(ff)')
         self.assertEqual(q.get_nowait()['a'], 'up')
+
+    def test_remote_buttons_and_hdmi_things(self):
+        got, closed = [], []
+        keys = diced.PowerKeys(got.append, home=lambda: bool(closed) and closed.pop(), front=lambda: None, voice_key=lambda: 66)
+        ev = lambda code, value: struct.pack('llHHi', 0, 0, 1, code, value)
+        keys.handle(ev(158, 1) + ev(158, 2) + ev(158, 0))  # Back: down, a repeat (ignored), up
+        keys.handle(ev(172, 1) + ev(172, 0))  # Home with nothing on top: Dice's Home
+        closed.append(True)
+        keys.handle(ev(172, 1) + ev(172, 0))  # Home with an app on top: closes it, nothing else
+        keys.handle(ev(582, 1) + ev(582, 0) + ev(66, 1))  # the microphone button, and one taught in Settings
+        self.assertEqual([(e['a'], e['down']) for e in got], [('b', True), ('b', False), ('home', True), ('home', False), ('voice', True), ('voice', False), ('voice', True)])
+        got.clear()
+        keys.front = lambda: {'name': 'VLC'}
+        keys.handle(ev(158, 1))  # Back belongs to the app on top
+        keys.learn = time.monotonic() + 5
+        keys.handle(ev(250, 1))
+        self.assertEqual(got, [{'learned': 250}])
+        # the TV's bus: what's plugged in, switching to it, passing buttons on
+        scan = ['CEC bus information', '===================', 'device #0: TV', 'address:       0.0.0.0', 'active source: no', 'vendor:        Samsung', 'osd string:    TV', 'power status:  on', '',
+                'device #4: Playback 1', 'address:       1.0.0.0', 'active source: yes', 'osd string:    DiceOS', '', 'device #8: Playback 2', 'address:       2.0.0.0', 'active source: no',
+                'vendor:        Sony', 'osd string:    PlayStation 5', 'power status:  standby', '', 'currently active source: Playback 1 (4)']
+        devs = diced.Remote.parse_scan(scan)
+        self.assertEqual([(d['la'], d['name'], d['pa']) for d in devs], [(0, 'TV', '0.0.0.0'), (4, 'DiceOS', '1.0.0.0'), (8, 'PlayStation 5', '2.0.0.0')])
+        r = diced.Remote('/nonexistent/settings.json')
+        sent = []
+
+        class Pipe:
+            def write(self, s):
+                sent.append(s.strip())
+
+            def flush(self):
+                pass
+
+        class Proc:
+            stdin = Pipe()
+
+            def poll(self):
+                return None
+        r.proc, r.la = Proc(), 4
+        r.heard('logical address(es) = Playback 1 (4)')
+        r.switch('2.0.0.0')
+        r.key(8, 'a')
+        r.key(8, 'd7')
+        self.assertEqual(sent, ['tx 4F:86:20:00', 'tx 48:44:00', 'tx 48:45', 'tx 48:44:27', 'tx 48:45'])
+        self.assertFalse(r.key(8, 'nope')['ok'])
+        self.assertFalse(r.switch('2.0.0')['ok'])
+        q = diced.queue.Queue()
+        r.subs.add(q)
+        r.heard("TV (0): power status changed from 'standby' to 'on'")
+        self.assertEqual(q.get_nowait(), {'tv': 'on'})
+        # Deuce: lookups only from the allowed places; listening needs setting up first
+        self.assertFalse(diced.lookup('https://evil.example/x')['ok'])
+        self.assertFalse(diced.lookup('http://site.api.espn.com/x')['ok'])
+        v = diced.Voice(lambda e: None, diced.Apps())
+        v.ROOT = tempfile.mkdtemp()
+        self.assertEqual(v.start()['need'], 'setup')
+        self.assertFalse(v.status()['ready'])
+
+    def test_antenna_tuner_stays_local(self):
+        for h in ('hdhomerun.local', '192.168.1.40', '10.0.0.7', 'hdhomerun', '172.20.1.2'):
+            self.assertTrue(diced.local_host(h), h)
+        for h in ('example.com', '8.8.8.8', '172.40.1.1', 'a b', ''):
+            self.assertFalse(diced.local_host(h), h)
+        self.assertFalse(diced.tuner_lineup('evil.example')['ok'])
+        self.assertFalse(diced.Apps().watch('http://example.com/auto/v4.1', 'x')['ok'])
+
+    def test_standby_and_wake(self):
+        code, r = self.j('POST', '/api/power', {'action': 'standby'})
+        self.assertEqual((code, r['ok']), (200, True))
+        self.assertTrue(self.j('GET', '/api/status')[1]['standby'])
+        code, r = self.j('POST', '/api/power', {'action': 'wake'})
+        self.assertTrue(r['was'])
+        self.assertFalse(self.j('GET', '/api/status')[1]['standby'])
 
     def test_moonlight_game_lists(self):
         self.assertEqual(diced.Apps.parse_games('Desktop\nSteam Big Picture\n\n'), ['Desktop', 'Steam Big Picture'])
