@@ -278,6 +278,95 @@ class DicedTest(unittest.TestCase):
         r.press('key pressed: up (1) current(ff)')
         self.assertEqual(q.get_nowait()['a'], 'up')
 
+    def test_changing_this_computer_after_install(self):
+        boot = diced.boot_module()
+        ran, real_sh, real_open = [], boot.sh, boot.open if hasattr(boot, 'open') else None
+        boot.sh = lambda cmd, **kw: (ran.append(cmd), (0, ''))[1]
+        writes = {}
+
+        class Buf:
+            def __init__(self, p): self.p = p; self.t = ''
+            def write(self, s): self.t += s
+            def __enter__(self): return self
+            def __exit__(self, *a): writes[self.p] = self.t
+
+        import builtins
+        boot.open = lambda p, mode='r', *a, **k: Buf(p) if str(p).startswith('/etc/') and 'w' in mode else builtins.open(p, mode, *a, **k)
+        try:
+            # SSH stays off while the password is still the one it came with
+            r = diced.device_change(self.settings, {'timezone': 'America/New_York', 'keyboard': 'gb', 'ssh': True, 'looks': 'heaven', 'text': 'large'})
+            self.assertIn('Set the keyboard to gb', r['done'])
+            self.assertTrue(any('SSH stayed off' in p for p in r['problems']))
+            self.assertNotIn(['systemctl', 'enable', '--now', 'ssh'], ran)
+            self.assertIn('XKBLAYOUT="gb"', writes['/etc/default/keyboard'])
+            s = json.load(open(self.settings))
+            self.assertEqual((s['looks'], s['text']), ('heaven', 'large'))
+            self.assertNotIn('welcome', s)  # Settings shows what happened itself
+            # once a password of your own is set, it can
+            s['password_set'] = True
+            json.dump(s, open(self.settings, 'w'))
+            r = diced.device_change(self.settings, {'ssh': True})
+            self.assertIn(['systemctl', 'enable', '--now', 'ssh'], ran)
+            self.assertEqual(diced.device_change(self.settings, {'nonsense': 1})['ok'], False)
+            # a name it can't use is turned down
+            r = diced.device_change(self.settings, {'computer': 'My PC!'})
+            self.assertTrue(r['problems'])
+        finally:
+            boot.sh = real_sh
+            if real_open is None:
+                del boot.open
+            else:
+                boot.open = real_open
+
+    def test_screens_inputs_like_a_kvm(self):
+        M = diced.Monitors
+        detect = 'Display 1\n   I2C bus:  /dev/i2c-6\n   DRM connector:           card1-DP-1\n   Monitor:                 DEL:DELL U2720Q:ABC123\n\nInvalid display\n   I2C bus:  /dev/i2c-9\n\nDisplay 2\n   I2C bus:  /dev/i2c-7\n   Monitor:  GSM::\n'
+        self.assertEqual([(s['n'], s['name'], s['bus']) for s in M.parse_detect(detect)], [(1, 'DELL U2720Q', '/dev/i2c-6'), (2, 'Screen 2', '/dev/i2c-7')])
+        caps = 'Model: U2720Q\n   Feature: 10 (Brightness)\n   Feature: 60 (Input Source)\n      Values:\n         1b: Unrecognized value\n         0f: DisplayPort-1\n         11: HDMI-1\n   Feature: 62 (Audio speaker volume)\n      Values: 00: off\n'
+        self.assertEqual(M.parse_caps(caps), [0x1B, 0x0F, 0x11])
+        self.assertEqual(M.parse_current('VCP 60 SNC x0f'), 0x0F)
+        self.assertEqual(M.parse_current('VCP code 0x60 (Input Source                  ): HDMI-1 (sl=0x11)'), 0x11)
+        self.assertIsNone(M.parse_current('Display not found'))
+        # switching: what DiceOS is on is remembered, and "come back" goes there
+        ran, real_run, real_has, real_glob = [], diced.run, diced.has, diced.glob.glob
+        state = {'cur': 0x0F}
+
+        def fake_run(cmd, **kw):
+            ran.append(cmd)
+            if cmd[:2] == ['ddcutil', 'detect']:
+                return 0, detect
+            if 'capabilities' in cmd:
+                return 0, caps
+            if 'getvcp' in cmd:
+                return 0, 'VCP 60 SNC x%02x' % state['cur']
+            if 'setvcp' in cmd:
+                state['cur'] = int(cmd[-1], 16)
+                return 0, ''
+            return 1, ''
+        diced.run, diced.has = fake_run, lambda p: p == 'ddcutil' or real_has(p)
+        diced.glob.glob = lambda pat: ['/dev/i2c-6'] if pat.startswith('/dev/i2c') else real_glob(pat)
+        try:
+            m = diced.Monitors()
+            L = m.list()
+            self.assertTrue(L['ok'])
+            ins = L['screens'][0]['inputs']
+            self.assertEqual([(i['name'], i['here']) for i in ins], [('USB-C', False), ('DisplayPort 1', True), ('HDMI 1', False)])
+            self.assertTrue(m.switch(1, 0x11)['ok'])
+            self.assertIn(['ddcutil', '--display', '1', '--noverify', 'setvcp', '60', '0x11'], ran)
+            self.assertEqual(state['cur'], 0x11)
+            self.assertEqual(m.home[1], 0x0F)  # still DiceOS's input, not the one it switched to
+            self.assertTrue(m.back()['ok'])
+            self.assertEqual(state['cur'], 0x0F)
+            self.assertFalse(m.switch(1, 999)['ok'])
+            self.assertFalse(m.switch(40, 0x11)['ok'])
+        finally:
+            diced.run, diced.has, diced.glob.glob = real_run, real_has, real_glob
+        diced.has = lambda p: False
+        try:
+            self.assertFalse(diced.Monitors().list()['ok'])
+        finally:
+            diced.has = real_has
+
     def test_remote_buttons_and_hdmi_things(self):
         got, closed = [], []
         keys = diced.PowerKeys(got.append, home=lambda: bool(closed) and closed.pop(), front=lambda: None, voice_key=lambda: 66)

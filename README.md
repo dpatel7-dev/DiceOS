@@ -57,9 +57,18 @@ Add `-s -- CODE` to the end with a setup code from the website. To take DiceOS o
 
 Hold the microphone button on the air mouse and say what you want: "put on the Knicks game" (it finds the game, the channel it's on and the way you can watch it, and opens it), "put on MSG", "open Netflix", "switch to the PlayStation", "turn it up", "set a timer for 10 minutes", "turn off the TV". The first time, set up its hearing in Settings, Deuce (a one-time download of [Vosk](https://alphacephei.com/vosk/)'s small English model, about 50 MB). It listens on the computer itself; nothing you say goes to a cloud AI. If holding the button does nothing, "Teach it" in the same place.
 
-## Inputs: a switch for your TV
+## Inputs: DiceOS as a KVM switch
 
-Everything on the TV's other HDMI inputs (a PlayStation, an Xbox, a cable box) shows in Inputs, at the end of TV channels. Pick one and the TV switches to it; the air mouse's buttons go on to it through the HDMI cable, and Home comes back to DiceOS. It needs HDMI-CEC on in the TV and in each device (PlayStation: "Enable HDMI Device Link").
+Open Inputs from Quick access, the Dice Bar, or the end of TV channels.
+
+- **On a TV:** everything on its other HDMI inputs (a PlayStation, an Xbox, a cable box) shows up. Pick one and the TV switches to it; the air mouse's buttons go on to it through the HDMI cable, and Home comes back to DiceOS. It needs HDMI-CEC on in the TV and in each device (PlayStation: "Enable HDMI Device Link").
+- **On a PC:** each screen's other inputs (HDMI, DisplayPort, USB-C) show up, through DDC/CI, the screen's own computer link. Pick one and the screen shows it; Esc (or Home on a remote) brings DiceOS back. Turn on DDC/CI in the screen's own menu if nothing shows. A few screens only listen on the input they're showing: their own input button brings DiceOS back then. A PC can switch a TV too, with a USB HDMI-CEC adapter (like Pulse-Eight's).
+- **The keyboard and mouse too:** Get Deskflow (in Inputs) shares them with the other computer over your network.
+- Give any input a name of your own (X on it): "Work laptop". Deuce knows it: "switch to my work laptop".
+
+## Changing things after installing
+
+Settings, **This computer**: the computer's name, time zone, keyboard, Wi-Fi country, SSH and automatic updates. **Use a dice.json** applies one now (one from the website, or saved from another DiceOS); **Save as dice.json** puts this computer's settings in Downloads (without passwords) to set up another the same way. From Terminal: `sudo /opt/dice/bin/dice-boot --apply dice.json`.
 
 ## Dice Cloud PC
 
@@ -100,9 +109,26 @@ Everything is optional. Leave something out and DiceOS asks on the screen instea
   "homeassistant": "http://homeassistant.local:8123",
   "suite": ["scout", "hey"],
   "ssh": false,
-  "updates": true
+  "updates": true,
+  "looks": "heaven",
+  "accent": "auto",
+  "text": "normal",
+  "clock": "auto",
+  "units": "f",
+  "sounds": true,
+  "nightlight": "off",
+  "motion": "full",
+  "ambient": { "after": 10, "show": "world" },
+  "deuce": { "on": true, "talk": true },
+  "tv": { "live": "fubo", "have": ["dazn", "peacock"], "tuner": "hdhomerun.local" },
+  "desk": { "snap": true, "hotCorner": true, "homeIcon": true }
 }
 ```
+
+- `looks`: `normal`, or `heaven` for Heavenly looks (sunbeams, glowing air, finer worlds, deeper glass).
+- `accent`: `auto` (the colour of whatever's picked) or a colour like `#2bc4b2`. `text`: `normal`, `large` or `larger`. `clock`: `auto`, `12` or `24`. `units`: `f` or `c`.
+- `nightlight`: `off`, `night` or `on`. `motion`: `full` or `less`. `ambient.after`: minutes before the ambient screen (0 is never).
+- `tv.live`: your live TV service (`ytv`, `hululive`, `fubo`, `directv`, `sling`, `optimum`, `fios`, `xfinity`, `spectrum`); `tv.have`: apps you pay for (`dazn`, `espn`, `foxone`, `peacock`, `paramount`, `hbomax`, `prime`, `netflix`, `disney`, `hulu`, `apple`, `nba`, `nfl`, `mlb`); `tv.tuner`: an antenna tuner's name or address.
 
 At start-up, `dice-boot` looks for `dice.json` on the Pi card's bootfs drive (or in `/etc/dice/` on a PC), then on USB sticks. It only looks at USB sticks and other removable drives, never the computer's own disks, and opens them read-only until it finds one. It applies it, wipes the passwords out, and renames it `dice-applied.json`. Drop a new one on the card to change things again.
 
