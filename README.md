@@ -110,7 +110,7 @@ Everything is optional. Leave something out and DiceOS asks on the screen instea
   "suite": ["scout", "hey"],
   "ssh": false,
   "updates": true,
-  "looks": "heaven",
+  "looks": "traced",
   "accent": "auto",
   "text": "normal",
   "clock": "auto",
@@ -125,7 +125,7 @@ Everything is optional. Leave something out and DiceOS asks on the screen instea
 }
 ```
 
-- `looks`: `normal`, or `heaven` for Heavenly looks (sunbeams, glowing air, finer worlds, deeper glass).
+- `looks`: `normal`, or `traced` for Traced mode (every world painted by hand in pixels, with an ink line round everything and little things going on, and a start-up of its own). `heaven`, its old name, still works.
 - `accent`: `auto` (the colour of whatever's picked) or a colour like `#2bc4b2`. `text`: `normal`, `large` or `larger`. `clock`: `auto`, `12` or `24`. `units`: `f` or `c`.
 - `nightlight`: `off`, `night` or `on`. `motion`: `full` or `less`. `ambient.after`: minutes before the ambient screen (0 is never).
 - `tv.live`: your live TV service (`ytv`, `hululive`, `fubo`, `directv`, `sling`, `optimum`, `fios`, `xfinity`, `spectrum`); `tv.have`: apps you pay for (`dazn`, `espn`, `foxone`, `peacock`, `paramount`, `hbomax`, `prime`, `netflix`, `disney`, `hulu`, `apple`, `nba`, `nfl`, `mlb`); `tv.tuner`: an antenna tuner's name or address.

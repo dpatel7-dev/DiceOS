@@ -18,6 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import diced  # noqa: E402
 
 
+def stat_mode(path):
+    return os.stat(path).st_mode & 0o777
+
+
 class DicedTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -294,13 +298,13 @@ class DicedTest(unittest.TestCase):
         boot.open = lambda p, mode='r', *a, **k: Buf(p) if str(p).startswith('/etc/') and 'w' in mode else builtins.open(p, mode, *a, **k)
         try:
             # SSH stays off while the password is still the one it came with
-            r = diced.device_change(self.settings, {'timezone': 'America/New_York', 'keyboard': 'gb', 'ssh': True, 'looks': 'heaven', 'text': 'large'})
+            r = diced.device_change(self.settings, {'timezone': 'America/New_York', 'keyboard': 'gb', 'ssh': True, 'looks': 'heaven', 'text': 'large'})  # its old name
             self.assertIn('Set the keyboard to gb', r['done'])
             self.assertTrue(any('SSH stayed off' in p for p in r['problems']))
             self.assertNotIn(['systemctl', 'enable', '--now', 'ssh'], ran)
             self.assertIn('XKBLAYOUT="gb"', writes['/etc/default/keyboard'])
             s = json.load(open(self.settings))
-            self.assertEqual((s['looks'], s['text']), ('heaven', 'large'))
+            self.assertEqual((s['looks'], s['text']), ('traced', 'large'))
             self.assertNotIn('welcome', s)  # Settings shows what happened itself
             # once a password of your own is set, it can
             s['password_set'] = True
@@ -474,12 +478,174 @@ class DicedTest(unittest.TestCase):
         with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(diced.__file__))), 'VERSION')) as f:
             self.assertEqual(diced.VERSION, f.read().strip())
 
+    def test_shield_keeps_its_own_part_of_the_hosts_file(self):
+        d = tempfile.mkdtemp()
+        try:
+            hosts, lst, settings = os.path.join(d, 'hosts'), os.path.join(d, 'domains.txt'), os.path.join(d, 'settings.json')
+            mine = '127.0.0.1 localhost\n::1 ip6-localhost\n192.168.1.5 nas # my own line\n'
+            with open(hosts, 'w') as f:
+                f.write(mine)
+            with open(lst, 'w') as f:
+                f.write('# notes\nads.example.com\ntracker.test\ngithub.com\nnot an address\n')
+            sh = diced.Shield(settings, hosts=hosts, store=os.path.join(d, 'store'), builtin=lst)
+            st = sh.apply()
+            with open(hosts) as f:
+                text = f.read()
+            self.assertTrue(text.startswith(mine))                       # nothing of yours is touched
+            self.assertIn('0.0.0.0 ads.example.com\n', text)
+            self.assertNotIn('github.com', text)                         # what DiceOS needs is never blocked
+            self.assertEqual(st['blocking'], 2)
+            self.assertTrue(st['system'])
+            sh.change({'action': 'allow', 'site': 'tracker.test'})        # let one through
+            self.assertNotIn('tracker.test', open(hosts).read())
+            self.assertEqual(sh.cfg()['allow'], ['tracker.test'])
+            self.assertFalse(sh.change({'action': 'allow', 'site': 'no such thing'})['ok'])
+            sh.change({'system': False})                                  # off: the hosts file is as it was
+            self.assertEqual(open(hosts).read(), mine)
+            sh.change({'system': True})
+            self.assertEqual(sh.ours(), 1)
+            # the big list, as the web gives it
+            names = diced.Shield.names_in('# Title: StevenBlack\n127.0.0.1 localhost\n0.0.0.0 0.0.0.0\n0.0.0.0 a.ads.test # x\n0.0.0.0 b.ads.test\n0.0.0.0 raw.githubusercontent.com\n')
+            self.assertEqual(names, {'a.ads.test', 'b.ads.test'})
+            big = '\n'.join('0.0.0.0 ad%d.example.net' % i for i in range(1500))
+
+            class Answer:
+                def __init__(self, body): self.body = body
+                def __enter__(self): return self
+                def __exit__(self, *a): return False
+                def read(self, n=-1): return self.body.encode()
+            real = diced.urllib.request.urlopen
+            diced.urllib.request.urlopen = lambda req, timeout=0: Answer(big)
+            try:
+                st = sh.update()
+            finally:
+                diced.urllib.request.urlopen = real
+            self.assertTrue(st['ok'])
+            self.assertEqual(st['big'], 1500)
+            self.assertEqual(sh.ours(), 1501)
+            diced.urllib.request.urlopen = lambda req, timeout=0: Answer('0.0.0.0 just.one.test\n')
+            try:
+                st = sh.update()                                           # a list that's too short isn't used
+            finally:
+                diced.urllib.request.urlopen = real
+            self.assertFalse(st['ok'])
+            self.assertEqual(sh.ours(), 1501)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_links_from_other_apps_open_in_serenetab(self):
+        sysm = self.srv.system
+        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        c.request('POST', '/api/browse', body=json.dumps({'url': 'https://example.com/'}), headers={'Host': '127.0.0.1:%d' % self.port, 'X-Dice-Open': 'wrong'})
+        r = c.getresponse(); r.read(); c.close()
+        self.assertEqual(r.status, 403)
+        q = __import__('queue').Queue()
+        with sysm.remote.lock:
+            sysm.remote.subs.add(q)
+        try:
+            c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+            c.request('POST', '/api/browse', body=json.dumps({'url': 'https://example.com/a?b=1'}), headers={'Host': '127.0.0.1:%d' % self.port, 'X-Dice-Open': diced.OPEN_TOKEN})
+            r = c.getresponse(); out = json.loads(r.read()); c.close()
+            self.assertEqual(out, {'ok': True, 'where': 'serenetab'})
+            self.assertEqual(q.get(timeout=2), {'browse': 'https://example.com/a?b=1'})
+            self.assertFalse(sysm.browse('file:///etc/passwd')['ok'])
+            self.assertFalse(sysm.browse('javascript:alert(1)')['ok'])
+        finally:
+            with sysm.remote.lock:
+                sysm.remote.subs.discard(q)
+        # a browser window's new tab page: SereneTab, and no secret in it
+        code, page = self.req('GET', '/?serene=1', token=False)
+        self.assertEqual(code, 200)
+        self.assertIn(b'DICE_SERENE', page)
+        self.assertNotIn(diced.TOKEN.encode(), page)
+        self.assertNotIn(b'DICE_SYS', page)
+
+    def test_deuce_answers_from_the_web(self):
+        d = tempfile.mkdtemp()
+        try:
+            duck = ('<div><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.nasa.gov%2Fsky&amp;rut=x">Why is the sky blue? - NASA</a>'
+                    '<a class="result__snippet" href="x">Sunlight is <b>scattered</b> by the air.</a></div>'
+                    '<div><a class="result__a" href="https://duckduckgo.com/y.js?ad=1">An ad</a></div>'
+                    '<div><a class="result__a" href="https://example.org/blue">Blue light</a><a class="result__snippet" href="y">Short waves scatter more.</a></div>')
+            asked = []
+
+            def fetch(url, data=None, headers=None, limit=0, timeout=0):
+                asked.append(url)
+                if 'duckduckgo' in url:
+                    return duck, 'text/html'
+                if 'w/api.php' in url:
+                    return json.dumps({'query': {'search': [{'title': 'Diffuse sky radiation'}]}}), 'application/json'
+                if 'rest_v1' in url:
+                    return json.dumps({'title': 'Diffuse sky radiation', 'extract': 'The sky looks blue because air scatters blue light most. It is called Rayleigh scattering. More text.'}), 'application/json'
+                if 'chat/completions' in url:
+                    body = json.loads(data)
+                    self.assertIn('[1]', body['messages'][-1]['content'])
+                    self.assertEqual(headers['Authorization'], 'Bearer gsk_testkey12345')
+                    return json.dumps({'choices': [{'message': {'content': 'Air scatters blue light the most [1][2].'}}]}), 'application/json'
+                return '<html><body><p>' + 'Blue light has a short wavelength and is scattered by gas molecules. ' * 3 + '</p></body></html>', 'text/html'
+            a = diced.Answers(os.path.join(d, 'settings.json'), fetch=fetch)
+            out = a.ask('why is the sky blue')
+            self.assertTrue(out['ok'])
+            self.assertIsNone(out['ai'])
+            self.assertEqual([s['site'] for s in out['sources']], ['nasa.gov', 'en.wikipedia.org', 'example.org'])
+            self.assertNotIn('An ad', json.dumps(out))
+            self.assertIn('[1]', out['answer'])
+            # an AI of your own
+            self.assertFalse(a.set_ai({'provider': 'groq', 'key': 'x'})['ok'])
+            self.assertFalse(a.set_ai({'provider': 'nope', 'key': 'gsk_testkey12345'})['ok'])
+            pub = a.set_ai({'provider': 'groq', 'key': 'gsk_testkey12345'})
+            self.assertTrue(pub['set'])
+            self.assertNotIn('gsk_testkey12345', json.dumps(pub))
+            self.assertEqual(stat_mode(a.key_path()), 0o600)
+            out = a.ask('why is the sky blue', [{'q': 'hi', 'a': 'hello'}])
+            self.assertEqual(out['answer'], 'Air scatters blue light the most [1][2].')
+            self.assertEqual(out['ai'], 'Groq')
+            self.assertTrue(a.set_ai({'provider': 'groq'})['set'])        # same AI, key kept
+            self.assertFalse(a.set_ai({'provider': ''})['set'])           # and forgotten
+            self.assertFalse(a.ask('   ')['ok'])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_the_start_up_splash_follows_traced_mode(self):
+        d = tempfile.mkdtemp()
+        try:
+            settings, themes = os.path.join(d, 'settings.json'), os.path.join(d, 'themes')
+            os.makedirs(os.path.join(themes, 'dice-heaven'))  # the old one goes
+            self.assertEqual(diced.ensure_splash(settings, themes=themes, real=False), 'dice')
+            self.assertFalse(os.path.exists(os.path.join(themes, 'dice-heaven')))
+            for name in ('dice', 'dice-traced'):
+                self.assertTrue(os.path.isfile(os.path.join(themes, name, name + '.script')))
+                self.assertTrue(os.path.isfile(os.path.join(themes, name, 'restarting.png')))
+            self.assertTrue(os.path.isfile(os.path.join(themes, 'dice-traced', 'scene.png')))
+            diced.save_settings(settings, {'looks': 'traced'})
+            self.assertEqual(diced.ensure_splash(settings, themes=themes, real=False), 'dice-traced')
+            diced.save_settings(settings, {'looks': 'heaven'})  # its old name still works
+            self.assertEqual(diced.ensure_splash(settings, themes=themes, real=False), 'dice-traced')
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_updates_bring_the_power_button_rule(self):
         etc = tempfile.mkdtemp()
         try:
+            os.makedirs(os.path.join(etc, 'xdg'))
+            with open(os.path.join(etc, 'xdg', 'mimeapps.list'), 'w') as f:
+                f.write('[Default Applications]\nimage/png=photos.desktop\nx-scheme-handler/https=firefox.desktop\n\n[Added Associations]\ntext/plain=edit.desktop\n')
             self.assertTrue(diced.ensure_system_files(etc=etc))
             with open(os.path.join(etc, 'systemd', 'logind.conf.d', 'dice.conf')) as f:
                 self.assertIn('HandlePowerKey=ignore', f.read())
+            # SereneTab is the computer's web browser
+            with open(os.path.join(etc, 'usr-share', 'applications', 'serenetab.desktop')) as f:
+                self.assertIn('bin/dice-open %U', f.read())
+            with open(os.path.join(etc, 'chromium', 'policies', 'managed', 'dice-serenetab.json')) as f:
+                self.assertIn('?serene=1', json.load(f)['NewTabPageLocation'])
+            with open(os.path.join(etc, 'xdg', 'mimeapps.list')) as f:
+                mime = f.read()
+            self.assertIn('image/png=photos.desktop', mime)              # yours stay
+            self.assertIn('text/plain=edit.desktop', mime)
+            self.assertIn('x-scheme-handler/https=serenetab.desktop', mime)
+            self.assertIn('x-scheme-handler/http=serenetab.desktop', mime)
+            self.assertNotIn('firefox', mime)
+            self.assertEqual(mime.count('[Default Applications]'), 1)
             self.assertFalse(diced.ensure_system_files(etc=etc))  # already there
         finally:
             shutil.rmtree(etc, ignore_errors=True)
