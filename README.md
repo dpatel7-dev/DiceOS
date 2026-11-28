@@ -73,6 +73,13 @@ It's [Ollama](https://ollama.com) (downloaded from ollama.com, listening only on
 
 On a Pi, expect a few seconds before it starts answering. The simple things ("volume 30", "open Netflix") skip the brain and happen at once. `sudo /opt/dice/bin/dice-brain remove` takes it all away again.
 
+### Only on Dice
+
+- **Oops**: everything you change (a setting, a file moved to the Trash or renamed, a window closed, a reminder deleted, a mode started) goes on one list with Undo. Super + Z takes back the last one; Super + Shift + Z, the die menu or Quick access shows them all; or say "Deuce, undo that".
+- **Lookouts**: "tell me when the Knicks game starts", "let me know when it stops raining", "tell me when this page changes", "tell me when bestbuy.com says in stock". Deuce checks every few minutes and tells you, with Watch it or Open it. They're listed in Deuce's Reminders tab.
+- **Show me how**: "how do I pair headphones?" opens Settings, Bluetooth and lights up the button to press, step by step. Help, Show me how has all 35.
+- And: "remind me to stretch next time I open Netflix", "roll for it" (the die picks something to watch), "float this window", "leave a note on the TV: back at 6".
+
 ## Inputs: DiceOS as a KVM switch
 
 Open Inputs from Quick access, the Dice Bar, or the end of TV channels.
