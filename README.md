@@ -144,13 +144,21 @@ Everything is optional. Leave something out and DiceOS asks on the screen instea
   "ambient": { "after": 10, "show": "world" },
   "deuce": { "on": true, "talk": true },
   "tv": { "live": "fubo", "have": ["dazn", "peacock"], "tuner": "hdhomerun.local" },
-  "desk": { "snap": true, "hotCorner": true, "homeIcon": true }
+  "desk": { "snap": true, "hotCorner": true, "homeIcon": true },
+  "apps": ["org.videolan.VLC", "tv.kodi.Kodi"],
+  "webapps": [{ "name": "Desmos", "url": "https://www.desmos.com/calculator" }],
+  "layout": { "dock": ["files", "browser", "terminal", "hum"], "tv": ["hum", "channels", "browser"], "menu": ["browser", "files", "notes"],
+              "widgets": [{ "type": "clock", "x": 0.76, "y": 0.05 }, { "type": "sticky", "x": 0.05, "y": 0.1, "text": "Hi!" }] },
+  "files": "dice-files.zip"
 }
 ```
 
 - `looks`: `normal`, or `traced` for Traced mode (every world painted by hand in pixels, with an ink line round everything and little things going on, and a start-up of its own). `heaven`, its old name, still works.
 - `accent`: `auto` (the colour of whatever's picked) or a colour like `#2bc4b2`. `text`: `normal`, `large` or `larger`. `clock`: `auto`, `12` or `24`. `units`: `f` or `c`.
 - `nightlight`: `off`, `night` or `on`. `motion`: `full` or `less`. `ambient.after`: minutes before the ambient screen (0 is never).
+- `apps`: apps to install from [Flathub](https://flathub.org), by their IDs. DiceOS installs them in the background the first time it's online (a Pi skips any Flathub doesn't make for it, like Steam). `webapps`: websites as apps.
+- `layout`: your home screens. `dock` (the desktop's dock), `tv` (the big tiles on DiceTV's Home, up to 7), `menu` (pinned in the Dice menu), each a list of app IDs in order, and `widgets` on the desktop (`x` and `y` from 0 to 1 across and down the screen). The website's Make it yours opens a version of DiceOS in a new tab to arrange these by hand.
+- `files`: a zip of your own files next to dice.json (the website packs `dice-files.zip` from files and folders you pick; nothing is uploaded). It's copied into your home folder at the first start: never over a file that's already there (that one gets " (2)"), never outside your home folder, and no hidden files. Then it's taken off the Pi's bootfs drive (renamed `dice-files-copied.zip` on a USB stick). bootfs has room for about 400 MB; for more, put dice.json and the zip on a USB stick.
 - `tv.live`: your live TV service (`ytv`, `hululive`, `fubo`, `directv`, `sling`, `optimum`, `fios`, `xfinity`, `spectrum`); `tv.have`: apps you pay for (`dazn`, `espn`, `foxone`, `peacock`, `paramount`, `hbomax`, `prime`, `netflix`, `disney`, `hulu`, `apple`, `nba`, `nfl`, `mlb`); `tv.tuner`: an antenna tuner's name or address.
 
 At start-up, `dice-boot` looks for `dice.json` on the Pi card's bootfs drive (or in `/etc/dice/` on a PC), then on USB sticks. It only looks at USB sticks and other removable drives, never the computer's own disks, and opens them read-only until it finds one. It applies it, wipes the passwords out, and renames it `dice-applied.json`. Drop a new one on the card to change things again.

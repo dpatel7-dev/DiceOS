@@ -897,6 +897,39 @@ class BrainTest(unittest.TestCase):
         finally:
             diced.OLLAMA = old
 
+    def test_gossip_passes_through_to_its_relay(self):
+        import http.server
+        seen = []
+
+        class Relay(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                m = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                seen.append(m)
+                out = json.dumps({'t': 'ok', 'v': 1, 'nonce': 'n0nce'} if m['t'] == 'hello' else {'t': 'err', 'code': 'bad_session', 'msg': 'Sign in first'}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+        relay = http.server.HTTPServer(('127.0.0.1', 0), Relay)
+        threading.Thread(target=relay.serve_forever, daemon=True).start()
+        old = diced.GOSSIP_RELAY
+        diced.GOSSIP_RELAY = 'http://127.0.0.1:%d/api' % relay.server_address[1]
+        try:
+            code, r = self.j('POST', '/api/gossip', {'t': 'hello'})
+            self.assertEqual((code, r['t'], r['nonce']), (200, 'ok', 'n0nce'))
+            code, r = self.j('POST', '/api/gossip', {'t': 'poll', 'token': 'x'})
+            self.assertEqual(r['code'], 'bad_session')
+            code, r = self.j('POST', '/api/gossip', {'t': '../../etc'})
+            self.assertEqual(r['code'], 'bad_request')
+            self.assertEqual([m['t'] for m in seen], ['hello', 'poll'])
+        finally:
+            diced.GOSSIP_RELAY = old
+            relay.shutdown()
+
     def test_deuce_reads_the_web_not_your_network(self):
         for url in ('http://127.0.0.1:11434/api/tags', 'http://192.168.1.1/', 'http://localhost/', 'http://router/', 'file:///etc/passwd', 'http://[::1]/'):
             code, r = self.j('POST', '/api/read', {'url': url})

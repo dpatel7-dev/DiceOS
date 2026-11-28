@@ -119,5 +119,83 @@ class BootTest(unittest.TestCase):
         self.assertEqual(boot.wifi_device(), 'wlan0')
 
 
+    def _home(self):
+        home = os.path.join(self.tmp, 'home', 'dice')
+        os.makedirs(os.path.join(home, 'Documents'))
+        with open(os.path.join(home, 'Documents', 'notes.txt'), 'w') as f:
+            f.write('already here')
+        import pwd as _pwd
+        fake = type('P', (), {'pw_dir': home, 'pw_uid': os.getuid(), 'pw_gid': os.getgid()})
+        real = boot.pwd.getpwnam
+        self.addCleanup(setattr, boot.pwd, 'getpwnam', real)
+        boot.pwd.getpwnam = lambda name: fake if name == 'dice' else real(name)
+        return home
+
+    def _zip(self, where):
+        import stat
+        import zipfile
+        path = os.path.join(where, 'dice-files.zip')
+        with zipfile.ZipFile(path, 'w') as z:
+            z.writestr('Photos/2024/beach.jpg', b'jpeg!')
+            z.writestr('Documents/notes.txt', b'from my PC')
+            z.writestr('../escape.txt', b'no')
+            z.writestr('/etc/passwd', b'no')
+            z.writestr('.ssh/authorized_keys', b'no')
+            z.writestr('Music/.hidden.mp3', b'no')
+            link = zipfile.ZipInfo('Pictures/link')
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            z.writestr(link, '/etc/shadow')
+        return path
+
+    def test_files_apps_and_home_screens_from_make_it_yours(self):
+        home = self._home()
+        card = os.path.join(self.tmp, 'bootfs')
+        os.makedirs(card)
+        self._zip(card)
+        cfg = {'name': 'Dhruv', 'files': 'dice-files.zip', 'apps': ['org.videolan.VLC', 'not an app', 'tv.kodi.Kodi'],
+               'layout': {'dock': ['files', 'browser'], 'tv': ['hum'], 'widgets': [{'type': 'clock', 'x': 0.7, 'y': 0.1}]},
+               'webapps': [{'name': 'Desmos', 'url': 'https://www.desmos.com/calculator'}]}
+        done, problems = boot.apply(cfg, src=os.path.join(card, 'dice.json'))
+        self.assertEqual(problems, [])
+        with open(os.path.join(home, 'Photos', '2024', 'beach.jpg'), 'rb') as f:
+            self.assertEqual(f.read(), b'jpeg!')
+        # never over what's there, never outside home, no hidden files, no links
+        with open(os.path.join(home, 'Documents', 'notes.txt')) as f:
+            self.assertEqual(f.read(), 'already here')
+        with open(os.path.join(home, 'Documents', 'notes (2).txt')) as f:
+            self.assertEqual(f.read(), 'from my PC')
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, 'home', 'escape.txt')))
+        self.assertFalse(os.path.exists(os.path.join(home, '.ssh')))
+        self.assertFalse(os.path.exists(os.path.join(home, 'Music')))
+        self.assertFalse(os.path.lexists(os.path.join(home, 'Pictures', 'link')))
+        self.assertTrue(any('Copied 2 of your files' in d and '5 left out' in d for d in done), done)
+        # apps: in the background, the good ids only
+        bg = [c for c, how in self.ran if how == 'background' and '--install-apps' in c]
+        self.assertEqual(bg[0][bg[0].index('--install-apps') + 1:], ['org.videolan.VLC', 'tv.kodi.Kodi'])
+        saved = json.load(open(boot.SETTINGS))
+        self.assertEqual(saved['layout']['dock'], ['files', 'browser'])
+        self.assertEqual(saved['webapps'][0]['name'], 'Desmos')
+        # once copied, the zip comes off the Pi's small bootfs drive
+        boot.scrub(os.path.join(card, 'dice.json'), cfg, None)
+        self.assertFalse(os.path.exists(os.path.join(card, 'dice-files.zip')))
+
+    def test_a_missing_zip_is_a_problem_not_a_crash(self):
+        self._home()
+        done, problems = boot.apply({'files': 'dice-files.zip'}, src=os.path.join(self.tmp, 'dice.json'))
+        self.assertTrue(any('wasn\'t next to dice.json' in p for p in problems))
+
+    def test_installs_the_apps_once_online(self):
+        boot.online = lambda host='dl.flathub.org': True
+        real_which = boot.shutil.which
+        self.addCleanup(setattr, boot.shutil, 'which', real_which)
+        boot.shutil.which = lambda name: '/usr/bin/' + name
+        got = boot.install_apps(['org.videolan.VLC', 'rm -rf /', 'tv.kodi.Kodi'], tries=1, wait=0)
+        self.assertEqual(got, ['org.videolan.VLC', 'tv.kodi.Kodi'])
+        c = self.cmds()
+        self.assertIn('flatpak remote-add --system --if-not-exists flathub ' + boot.FLATHUB, c)
+        self.assertIn('flatpak install --system -y --noninteractive flathub org.videolan.VLC', c)
+        self.assertFalse(any('rm -rf' in x for x in c))
+
+
 if __name__ == '__main__':
     unittest.main()
