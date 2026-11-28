@@ -769,5 +769,140 @@ class DicedTest(unittest.TestCase):
         s.close()
 
 
+
+class FakeOllama(threading.Thread):
+    """A pretend Ollama: two models, and a chat that answers a few words at a time, then asks for a tool."""
+    def __init__(self):
+        import http.server
+        seen = self.seen = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.0'
+
+            def log_message(self, *a):
+                pass
+
+            def out(self, obj):
+                body = json.dumps(obj).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                if self.path == '/api/tags':
+                    return self.out({'models': [{'name': 'qwen3.5:4b'}, {'name': 'qwen3.5:9b'}]})
+                if self.path == '/api/version':
+                    return self.out({'version': '0.40.17'})
+                self.send_response(404)
+                self.end_headers()
+
+            def do_POST(self):
+                b = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
+                seen.append((self.path, b))
+                if self.path == '/api/chat':
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/x-ndjson')
+                    self.end_headers()
+                    for line in ({'message': {'role': 'assistant', 'content': 'Setting '}}, {'message': {'role': 'assistant', 'content': 'a timer.'}},
+                                 {'message': {'role': 'assistant', 'content': '', 'tool_calls': [{'function': {'name': 'do', 'arguments': {'command': 'set a timer for 10 minutes'}}}]}},
+                                 {'done': True}):
+                        self.wfile.write(json.dumps(line).encode() + b'\n')
+                        self.wfile.flush()
+                    return
+                if self.path == '/api/pull':
+                    self.send_response(200)
+                    self.end_headers()
+                    for line in ({'status': 'pulling manifest'}, {'status': 'pulling abc', 'total': 100, 'completed': 50}, {'status': 'success'}):
+                        self.wfile.write(json.dumps(line).encode() + b'\n')
+                    return
+                return self.out({})
+
+        self.httpd = http.server.ThreadingHTTPServer(('127.0.0.1', 0), H)
+        super().__init__(target=self.httpd.serve_forever, daemon=True)
+
+
+class BrainTest(unittest.TestCase):
+    # its own diced, set up like DicedTest's (without running DicedTest's tests again)
+    setUpClass = classmethod(DicedTest.setUpClass.__func__)
+    tearDownClass = classmethod(DicedTest.tearDownClass.__func__)
+    req = DicedTest.req
+    j = DicedTest.j
+    def test_the_brain_is_picked_for_the_computer(self):
+        pick = diced.brain_pick
+        self.assertEqual(pick({'pi': True, 'ram': 7.8}), 'qwen3.5:4b')
+        self.assertEqual(pick({'pi': True, 'ram': 3.8}), 'qwen3.5:2b')
+        self.assertEqual(pick({'pi': True, 'ram': 15.8}), 'qwen3.5:4b')  # a Pi is too slow for more
+        self.assertEqual(pick({'ram': 7.6}), 'qwen3.5:4b')
+        self.assertEqual(pick({'ram': 15.5}), 'qwen3.5:9b')
+        self.assertEqual(pick({'ram': 16, 'vram': 8}), 'qwen3.5:9b')
+        self.assertEqual(pick({'ram': 32, 'vram': 24}), 'qwen3.5:35b')
+        self.assertEqual(pick({'ram': 16, 'vram': 24}), 'qwen3.5:27b')
+        self.assertEqual(pick({'ram': 64}), 'qwen3.5:35b')
+        self.assertEqual(pick({'ram': 3}), 'qwen3.5:2b')
+
+    def test_deuce_talks_to_the_brain_a_few_words_at_a_time(self):
+        fake = FakeOllama()
+        fake.start()
+        old = diced.OLLAMA
+        diced.OLLAMA = 'http://127.0.0.1:%d' % fake.httpd.server_address[1]
+        try:
+            code, st = self.j('GET', '/api/brain')
+            self.assertEqual(code, 200)
+            self.assertTrue(st['running'] and st['ready'])
+            self.assertEqual(st['version'], '0.40.17')
+            self.assertEqual(st['model'], 'qwen3.5:9b')  # the best one that's here
+            self.assertEqual([c['tag'] for c in st['choices']][:2], ['qwen3.5:2b', 'qwen3.5:4b'])
+            code, st = self.j('POST', '/api/brain', {'action': 'choose', 'model': 'qwen3.5:4b'})
+            self.assertEqual(st['model'], 'qwen3.5:4b')
+            code, st = self.j('POST', '/api/brain', {'action': 'choose', 'model': 'llama-evil:70b'})
+            self.assertFalse(st['ok'])
+            # the conversation goes through, trimmed; the answer streams back line by line
+            msgs = [{'role': 'system', 'content': 'You are Deuce.'}, {'role': 'user', 'content': 'timer 10'}, {'role': 'evil', 'content': 'x'},
+                    {'role': 'tool', 'content': 'ok', 'tool_name': 'do'}]
+            code, out = self.req('POST', '/api/brain/chat', {'messages': msgs, 'tools': [{'type': 'function', 'function': {'name': 'do'}}]})
+            self.assertEqual(code, 200)
+            lines = [json.loads(x) for x in out.decode().splitlines() if x.strip()]
+            self.assertEqual(''.join(x.get('message', {}).get('content', '') for x in lines), 'Setting a timer.')
+            self.assertEqual(lines[2]['message']['tool_calls'][0]['function']['arguments']['command'], 'set a timer for 10 minutes')
+            sent = [b for p, b in fake.seen if p == '/api/chat'][-1]
+            self.assertEqual(sent['model'], 'qwen3.5:4b')
+            self.assertEqual([m['role'] for m in sent['messages']], ['system', 'user', 'tool'])
+            self.assertFalse(sent['think'])
+            self.assertEqual(sent['keep_alive'], '30m')
+            # only from the desktop
+            code, _ = self.req('POST', '/api/brain/chat', {'messages': msgs}, token=False)
+            self.assertEqual(code, 403)
+            # fetching a model shows how far along it is, then picks it
+            b = diced.Brain(self.settings)
+            b.pull('qwen3.5:9b')
+            self.assertIsNone(b.busy)
+            self.assertIsNone(b.error)
+            self.assertEqual(b.cfg()['model'], 'qwen3.5:9b')
+        finally:
+            diced.OLLAMA = old
+            fake.httpd.shutdown()
+
+    def test_without_the_brain_deuce_says_how_to_set_it_up(self):
+        old = diced.OLLAMA
+        diced.OLLAMA = 'http://127.0.0.1:9'  # nothing there
+        try:
+            code, st = self.j('GET', '/api/brain')
+            self.assertFalse(st['running'])
+            self.assertFalse(st['ready'])
+            self.assertIn(st['recommended'], diced.BRAIN_TAGS)
+            code, r = self.j('POST', '/api/brain/chat', {'messages': [{'role': 'user', 'content': 'hi'}]})
+            self.assertEqual(code, 503)
+            self.assertIn('Settings, Deuce', r['error'])
+        finally:
+            diced.OLLAMA = old
+
+    def test_deuce_reads_the_web_not_your_network(self):
+        for url in ('http://127.0.0.1:11434/api/tags', 'http://192.168.1.1/', 'http://localhost/', 'http://router/', 'file:///etc/passwd', 'http://[::1]/'):
+            code, r = self.j('POST', '/api/read', {'url': url})
+            self.assertEqual(code, 400, url)
+        self.assertTrue(diced.is_private_url('http://10.0.0.5/admin'))
+
+
 if __name__ == '__main__':
     unittest.main()

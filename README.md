@@ -57,6 +57,22 @@ Add `-s -- CODE` to the end with a setup code from the website. To take DiceOS o
 
 Hold the microphone button on the air mouse and say what you want: "put on the Knicks game" (it finds the game, the channel it's on and the way you can watch it, and opens it), "put on MSG", "open Netflix", "switch to the PlayStation", "turn it up", "set a timer for 10 minutes", "turn off the TV". The first time, set up its hearing in Settings, Deuce (a one-time download of [Vosk](https://alphacephei.com/vosk/)'s small English model, about 50 MB). It listens on the computer itself; nothing you say goes to a cloud AI. If holding the button does nothing, "Teach it" in the same place.
 
+### Deuce's brain
+
+Settings, Deuce, Set it up gives Deuce a language model that runs on the computer itself, so it understands whatever you say, keeps up with a conversation, does several things at once, answers questions from the web with its sources, reads the page in front of you and writes things for you. Nothing you say leaves the computer (only the web searches it makes for you).
+
+It's [Ollama](https://ollama.com) (downloaded from ollama.com, listening only on 127.0.0.1) with a model picked for the computer:
+
+| Model | Download | For |
+|---|---|---|
+| Quick, `qwen3.5:2b` | about 2 GB | a Pi or PC with 4 GB of memory |
+| Smart, `qwen3.5:4b` | about 3.4 GB | a Raspberry Pi 5 with 8 GB |
+| Smarter, `qwen3.5:9b` | about 6.6 GB | a PC with 16 GB, or a graphics card with 8 GB |
+| Very smart, `qwen3.5:27b` | about 17 GB | a graphics card with 24 GB |
+| Smartest, `qwen3.5:35b` | about 24 GB | a PC with 48 GB or more |
+
+On a Pi, expect a few seconds before it starts answering. The simple things ("volume 30", "open Netflix") skip the brain and happen at once. `sudo /opt/dice/bin/dice-brain remove` takes it all away again.
+
 ## Inputs: DiceOS as a KVM switch
 
 Open Inputs from Quick access, the Dice Bar, or the end of TV channels.
@@ -136,6 +152,7 @@ At start-up, `dice-boot` looks for `dice.json` on the Pi card's bootfs drive (or
 
 - **cage** (a one-window Wayland compositor) runs **Chromium** full screen on DiceWeb, as the person who uses the computer.
 - **diced** (`daemon/diced.py`, Python standard library only) serves DiceWeb on 127.0.0.1:7070 and does the real things: Wi-Fi through NetworkManager, Bluetooth through bluetoothctl, the TV's own remote through HDMI-CEC (cec-client), the power button on air mice and media keyboards (read from /dev/input, so it sleeps DiceOS instead of switching everything off), volume through PipeWire (or ALSA), brightness, files in your home folder and on USB sticks (and finding them by name for the Dice Bar), screenshots with grim, a real shell over a WebSocket, opening Chromium for websites, power and updates. It only answers this machine, and only requests carrying the secret it put in the desktop page.
+- **Deuce's brain**: diced's `Brain` downloads Ollama, `bin/dice-brain setup` puts it in place as a service on 127.0.0.1:11434, and diced fetches the model and passes Deuce's conversations to it (`/api/brain`, `/api/brain/chat`, which streams; `/api/search` and `/api/read` for the web, never addresses on your own network).
 - **dice-boot** applies `dice.json` and starts the desktop. **dice-update** gets the newest DiceOS from the website (weekly, if automatic updates are on).
 - A Plymouth start-up splash: the Dice die turning slowly, with a loading bar. `node tools/make-splash.js` draws its pictures from the same `die3d.js` DiceWeb uses.
 
